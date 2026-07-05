@@ -120,6 +120,23 @@
   .btn:disabled { opacity: 0.5; cursor: default; }
   .hint { color: var(--muted); font-size: 13.5px; margin-top: 8px; }
 
+  .answer {
+    margin-top: 14px;
+    background: var(--green-soft);
+    border: 1px solid #CBDCC3;
+    border-left: 3px solid var(--green);
+    border-radius: var(--radius);
+    padding: 13px 15px;
+  }
+  .answer .cite {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    margin-bottom: 6px;
+    letter-spacing: 0.2px;
+  }
+  .answer .text { font-size: 15px; white-space: pre-line; }
+
   /* signature: excerpt slips with mono citation stamps */
   .slips { margin-top: 14px; display: grid; gap: 10px; }
   .slip {
@@ -237,7 +254,8 @@
                aria-label="Search the document library">
         <button class="btn" id="ask-btn">Search</button>
       </div>
-      <p class="hint">This runs the same search your Home Assistant agent uses, so you can check what it will see.</p>
+      <p class="hint" id="ask-hint">This runs the same search your Home Assistant agent uses, so you can check what it will see.</p>
+      <div id="answer"></div>
       <div class="slips" id="results"></div>
     </div>
   </section>
@@ -280,34 +298,64 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ---- stats ---- */
+let llmEnabled = false;
+
 async function loadStats() {
   try {
     const h = await (await fetch("/health")).json();
+    llmEnabled = !!h.llm;
     $("stats").innerHTML =
       `<b>${h.documents}</b> docs · <b>${h.chunks}</b> chunks · ` +
-      (h.semantic_search ? "hybrid search" : `<span class="warn">keyword-only (embeddings loading…)</span>`);
+      (h.semantic_search ? "hybrid search" : `<span class="warn">keyword-only (embeddings loading…)</span>`) +
+      (llmEnabled ? " · LLM" : "");
+    if (llmEnabled) {
+      $("ask-hint").textContent =
+        "Runs the full loop your voice assistant uses: search the library, then ask your local model to answer from the excerpts.";
+    }
   } catch { $("stats").textContent = "service unreachable"; }
 }
 
 /* ---- ask ---- */
+function renderSlips(results) {
+  $("results").innerHTML = results.map(r => `
+    <div class="slip">
+      <div class="cite">${esc(r.document.toUpperCase())} · ${esc(r.category)} · p.${r.page}</div>
+      <div class="excerpt">${esc(r.excerpt)}</div>
+    </div>`).join("");
+}
+
 async function runSearch() {
   const q = $("ask-input").value.trim();
   if (!q) return;
   $("ask-btn").disabled = true;
-  $("results").innerHTML = `<div class="empty-note">searching…</div>`;
+  $("answer").innerHTML = "";
+  $("results").innerHTML = `<div class="empty-note">${llmEnabled ? "searching, then asking your model…" : "searching…"}</div>`;
   try {
-    const data = await (await fetch(`/query?q=${encodeURIComponent(q)}`)).json();
-    if (!data.results.length) {
-      $("results").innerHTML = `<div class="empty-note">No matches. Add the relevant manual below, or try other words.</div>`;
-      return;
+    if (llmEnabled) {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Request failed");
+      $("answer").innerHTML = `
+        <div class="answer">
+          <div class="cite">ANSWER · LOCAL MODEL</div>
+          <div class="text">${esc(data.answer)}</div>
+        </div>`;
+      $("results").innerHTML = "";
+      if (data.results.length) renderSlips(data.results);
+    } else {
+      const data = await (await fetch(`/query?q=${encodeURIComponent(q)}`)).json();
+      if (!data.results.length) {
+        $("results").innerHTML = `<div class="empty-note">No matches. Add the relevant manual below, or try other words.</div>`;
+        return;
+      }
+      renderSlips(data.results);
     }
-    $("results").innerHTML = data.results.map(r => `
-      <div class="slip">
-        <div class="cite">${esc(r.document.toUpperCase())} · ${esc(r.category)} · p.${r.page}</div>
-        <div class="excerpt">${esc(r.excerpt)}</div>
-      </div>`).join("");
-  } catch {
-    $("results").innerHTML = `<div class="empty-note">Search failed — is the service running?</div>`;
+  } catch (err) {
+    $("results").innerHTML = `<div class="empty-note">${esc(err.message || "Search failed — is the service running?")}</div>`;
   } finally { $("ask-btn").disabled = false; }
 }
 $("ask-btn").addEventListener("click", runSearch);

@@ -52,6 +52,18 @@ pick a category, done. Indexing a typical manual takes a few seconds to ~1 minut
 Use the "Try a question" box to check what the agent will see for a given query —
 if the right excerpt comes back there, the agent has what it needs.
 
+### Optional: generated answers in the web UI
+
+Point HomeGuide at the same vLLM server your Home Assistant agent uses (or any
+OpenAI-compatible endpoint) and the "Try a question" box runs the full loop —
+search the library, then have the model answer from the excerpts — so you can
+test end-to-end without going through a voice pipeline. Uncomment the
+`environment:` block in [docker-compose.yml](docker-compose.yml) and set
+`LLM_BASE_URL` (e.g. `http://<vllm-host>:8000/v1`). The model name is
+auto-detected from `/v1/models`, so `LLM_MODEL` is only needed if your server
+hosts several. This only affects the web UI — the `/query` endpoint Home
+Assistant calls is unchanged.
+
 > **Scanned PDFs:** HomeGuide extracts embedded text. A scanned/image-only manual will
 > fail with "No extractable text" — run it through OCR first (e.g. `ocrmypdf in.pdf out.pdf`)
 > and upload the result. Most manufacturer-download PDFs are fine as-is.

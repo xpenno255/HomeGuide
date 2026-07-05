@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import db, embeddings, ingest, search
+from . import db, embeddings, ingest, llm, search
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("homeguide")
@@ -60,6 +60,7 @@ def health():
         "documents": docs,
         "chunks": chunks,
         "semantic_search": embeddings.available(),
+        "llm": llm.enabled(),
     }
 
 
@@ -89,6 +90,30 @@ async def query_post(payload: dict):
         payload.get("k") or DEFAULT_K,
         payload.get("category"),
     )
+
+
+@app.post("/api/ask")
+def ask(payload: dict):
+    """UI-only: full RAG round-trip through the local LLM, mirroring what the
+    Home Assistant agent does with the /query results."""
+    if not llm.enabled():
+        raise HTTPException(status_code=503, detail="No LLM configured (set LLM_BASE_URL)")
+    question = (payload.get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Missing question")
+
+    results = search.hybrid_search(question, k=DEFAULT_K)
+    if not results:
+        return {
+            "answer": "The document library doesn't contain anything about that.",
+            "results": [],
+        }
+    try:
+        answer = llm.ask(question, results)
+    except Exception as exc:
+        log.exception("LLM request failed")
+        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}")
+    return {"answer": answer, "results": results}
 
 
 @app.post("/api/upload")

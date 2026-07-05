@@ -8,4 +8,11 @@ services:
       - "8480:8000"
     volumes:
       - ./data:/data
+    # Optional: let the web UI's "Try a question" box generate spoken-style
+    # answers using your local model (any OpenAI-compatible server, e.g. the
+    # vLLM instance that serves Home Assistant). Uncomment and point at it:
+    # environment:
+    #   LLM_BASE_URL: "http://192.168.1.50:8000/v1"
+    #   LLM_MODEL: ""     # optional — auto-detected from /v1/models when unset
+    #   LLM_API_KEY: ""   # only if your server requires one
     restart: unless-stopped
