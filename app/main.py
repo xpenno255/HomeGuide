@@ -27,7 +27,7 @@ app = FastAPI(title="HomeGuide", docs_url="/api/docs")
 
 STATIC_DIR = Path(__file__).parent / "static"
 ALLOWED_SUFFIXES = {".pdf", ".txt", ".md"}
-DEFAULT_K = 4
+DEFAULT_K = 5
 MAX_K = 10
 
 
