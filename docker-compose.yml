@@ -1,0 +1,11 @@
+services:
+  homeguide:
+    image: ghcr.io/xpenno255/homeguide:latest
+    # To build from source instead of pulling, comment out `image:` and uncomment:
+    # build: .
+    container_name: homeguide
+    ports:
+      - "8480:8000"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HomeGuide — household document library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F3F4F1;
+    --card: #FFFFFF;
+    --ink: #26302C;
+    --muted: #6B756F;
+    --line: #DBDFD7;
+    --grid: rgba(43, 94, 167, 0.14);
+    --blue: #2B5EA7;
+    --blue-soft: #E7EEF8;
+    --amber: #9A6A0B;
+    --amber-soft: #F6EEDB;
+    --green: #4C7A3D;
+    --green-soft: #E9F1E5;
+    --grey-soft: #ECEEEA;
+    --red: #A33D2E;
+    --radius: 6px;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Barlow", system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  a { color: var(--blue); }
+  button { font-family: inherit; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+  /* ---- header: engineering graph paper ---- */
+  header {
+    background-color: #FBFCFA;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 26px 26px;
+    border-bottom: 1px solid var(--line);
+  }
+  .header-inner {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 34px 20px 26px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .wordmark h1 {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .wordmark h1 span { color: var(--blue); }
+  .wordmark p { color: var(--muted); font-size: 15px; margin-top: 2px; }
+  .stats {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+  .stats b { color: var(--ink); font-weight: 500; }
+  .stats .warn { color: var(--amber); }
+
+  main { max-width: 880px; margin: 0 auto; padding: 26px 20px 70px; }
+
+  section { margin-bottom: 34px; }
+  h2 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+
+  /* ---- ask ---- */
+  .ask-row { display: flex; gap: 10px; }
+  .ask-row input {
+    flex: 1;
+    font: inherit;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--ink);
+  }
+  .btn {
+    padding: 10px 18px;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--blue);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn:hover { background: #234E8C; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .hint { color: var(--muted); font-size: 13.5px; margin-top: 8px; }
+
+  /* signature: excerpt slips with mono citation stamps */
+  .slips { margin-top: 14px; display: grid; gap: 10px; }
+  .slip {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--blue);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .slip .cite {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--blue);
+    margin-bottom: 6px;
+    letter-spacing: 0.2px;
+  }
+  .slip .excerpt { font-size: 14.5px; white-space: pre-line; color: #3A443F; }
+  .empty-note {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    padding: 12px 2px;
+  }
+
+  /* ---- upload ---- */
+  .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .upload-grid .full { grid-column: 1 / -1; }
+  label.field { display: block; font-size: 13px; font-weight: 600; color: var(--muted); }
+  label.field input, label.field select {
+    display: block; width: 100%; margin-top: 4px;
+    font: inherit; font-weight: 400;
+    padding: 9px 11px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--card); color: var(--ink);
+  }
+  .dropzone {
+    border: 1.5px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 22px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone.drag { border-color: var(--blue); background: var(--blue-soft); }
+  .dropzone .picked { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+  .upload-actions { display: flex; align-items: center; gap: 12px; }
+  .msg { font-size: 14px; }
+  .msg.err { color: var(--red); }
+  .msg.ok { color: var(--green); }
+
+  /* ---- library ---- */
+  .doc { display: flex; align-items: center; gap: 14px; padding: 13px 16px; }
+  .doc + .doc { border-top: 1px solid var(--line); }
+  .doc-main { flex: 1; min-width: 0; }
+  .doc-title { font-weight: 600; font-size: 15.5px; }
+  .doc-meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip.manual   { background: var(--blue-soft);  color: var(--blue); }
+  .chip.warranty { background: var(--amber-soft); color: var(--amber); }
+  .chip.house    { background: var(--green-soft); color: var(--green); }
+  .chip.other    { background: var(--grey-soft);  color: var(--muted); }
+  .chip.processing { background: var(--amber-soft); color: var(--amber); }
+  .chip.error      { background: #F7E4E0; color: var(--red); }
+  .doc-actions { display: flex; gap: 6px; }
+  .icon-btn {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .icon-btn:hover { color: var(--ink); border-color: var(--muted); }
+  .icon-btn.danger:hover { color: var(--red); border-color: var(--red); }
+  .doc-error { font-size: 13px; color: var(--red); margin-top: 3px; }
+  .library-empty { padding: 26px; text-align: center; color: var(--muted); }
+
+  @media (max-width: 620px) {
+    .upload-grid { grid-template-columns: 1fr; }
+    .ask-row { flex-direction: column; }
+    .doc { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="wordmark">
+      <h1>Home<span>Guide</span></h1>
+      <p>Household document library for your voice assistant</p>
+    </div>
+    <div class="stats" id="stats">loading…</div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>Try a question</h2>
+    <div class="card">
+      <div class="ask-row">
+        <input id="ask-input" type="search" placeholder="e.g. air fryer chicken cooking time, dishwasher fault code E4"
+               aria-label="Search the document library">
+        <button class="btn" id="ask-btn">Search</button>
+      </div>
+      <p class="hint">This runs the same search your Home Assistant agent uses, so you can check what it will see.</p>
+      <div class="slips" id="results"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Add a document</h2>
+    <form class="card upload-grid" id="upload-form">
+      <div class="dropzone full" id="dropzone" tabindex="0" role="button"
+           aria-label="Choose a PDF, TXT or MD file">
+        <span id="drop-label">Drop a PDF here, or click to choose a file</span>
+        <input type="file" id="file-input" accept=".pdf,.txt,.md" hidden>
+      </div>
+      <label class="field">Title
+        <input type="text" id="title-input" placeholder="e.g. Ninja Air Fryer AF300 manual">
+      </label>
+      <label class="field">Category
+        <select id="category-input">
+          <option value="manual">Manual</option>
+          <option value="warranty">Warranty</option>
+          <option value="house">House document</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <div class="upload-actions full">
+        <button class="btn" type="submit" id="upload-btn">Add to library</button>
+        <span class="msg" id="upload-msg" role="status"></span>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Library</h2>
+    <div class="card" style="padding: 0;" id="library"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---- stats ---- */
+async function loadStats() {
+  try {
+    const h = await (await fetch("/health")).json();
+    $("stats").innerHTML =
+      `<b>${h.documents}</b> docs · <b>${h.chunks}</b> chunks · ` +
+      (h.semantic_search ? "hybrid search" : `<span class="warn">keyword-only (embeddings loading…)</span>`);
+  } catch { $("stats").textContent = "service unreachable"; }
+}
+
+/* ---- ask ---- */
+async function runSearch() {
+  const q = $("ask-input").value.trim();
+  if (!q) return;
+  $("ask-btn").disabled = true;
+  $("results").innerHTML = `<div class="empty-note">searching…</div>`;
+  try {
+    const data = await (await fetch(`/query?q=${encodeURIComponent(q)}`)).json();
+    if (!data.results.length) {
+      $("results").innerHTML = `<div class="empty-note">No matches. Add the relevant manual below, or try other words.</div>`;
+      return;
+    }
+    $("results").innerHTML = data.results.map(r => `
+      <div class="slip">
+        <div class="cite">${esc(r.document.toUpperCase())} · ${esc(r.category)} · p.${r.page}</div>
+        <div class="excerpt">${esc(r.excerpt)}</div>
+      </div>`).join("");
+  } catch {
+    $("results").innerHTML = `<div class="empty-note">Search failed — is the service running?</div>`;
+  } finally { $("ask-btn").disabled = false; }
+}
+$("ask-btn").addEventListener("click", runSearch);
+$("ask-input").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+
+/* ---- upload ---- */
+const dropzone = $("dropzone"), fileInput = $("file-input");
+let pickedFile = null;
+
+function setPicked(file) {
+  pickedFile = file;
+  $("drop-label").innerHTML = file
+    ? `<span class="picked">${esc(file.name)}</span>`
+    : "Drop a PDF here, or click to choose a file";
+  if (file && !$("title-input").value) {
+    $("title-input").value = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+  }
+}
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener("change", () => setPicked(fileInput.files[0] || null));
+["dragover", "dragenter"].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add("drag"); }));
+["dragleave", "drop"].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove("drag"); }));
+dropzone.addEventListener("drop", e => { if (e.dataTransfer.files[0]) setPicked(e.dataTransfer.files[0]); });
+
+$("upload-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = $("upload-msg");
+  if (!pickedFile) { msg.className = "msg err"; msg.textContent = "Choose a file first."; return; }
+  $("upload-btn").disabled = true;
+  msg.className = "msg"; msg.textContent = "Uploading…";
+  const form = new FormData();
+  form.append("file", pickedFile);
+  form.append("title", $("title-input").value);
+  form.append("category", $("category-input").value);
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Upload failed");
+    msg.className = "msg ok"; msg.textContent = `Added "${data.title}" — indexing now.`;
+    setPicked(null); fileInput.value = ""; $("title-input").value = "";
+    loadLibrary();
+  } catch (err) {
+    msg.className = "msg err"; msg.textContent = err.message;
+  } finally { $("upload-btn").disabled = false; }
+});
+
+/* ---- library ---- */
+let pollTimer = null;
+
+async function loadLibrary() {
+  try {
+    const data = await (await fetch("/api/documents")).json();
+    const docs = data.documents;
+    if (!docs.length) {
+      $("library").innerHTML = `<div class="library-empty">No documents yet. Add your first manual above.</div>`;
+      return;
+    }
+    $("library").innerHTML = docs.map(d => {
+      const status = d.status === "ready"
+        ? `<span class="chip ${esc(d.category)}">${esc(d.category)}</span>`
+        : `<span class="chip ${esc(d.status)}">${d.status === "processing" ? "indexing…" : "error"}</span>`;
+      const meta = d.status === "ready"
+        ? `${d.pages} pages · ${d.chunk_count} chunks · added ${esc(d.created_at.slice(0, 10))}`
+        : esc(d.filename);
+      const errLine = d.status === "error" ? `<div class="doc-error">${esc(d.error)}</div>` : "";
+      return `
+      <div class="doc">
+        <div class="doc-main">
+          <div class="doc-title">${esc(d.title)}</div>
+          <div class="doc-meta">${meta}</div>
+          ${errLine}
+        </div>
+        ${status}
+        <div class="doc-actions">
+          <a class="icon-btn" href="/api/documents/${d.id}/file" target="_blank" rel="noopener">Open</a>
+          <button class="icon-btn danger" data-del="${d.id}" data-title="${esc(d.title)}">Delete</button>
+        </div>
+      </div>`;
+    }).join("");
+
+    document.querySelectorAll("[data-del]").forEach(btn => btn.addEventListener("click", async () => {
+      if (!confirm(`Delete "${btn.dataset.title}" from the library?`)) return;
+      await fetch(`/api/documents/${btn.dataset.del}`, { method: "DELETE" });
+      loadLibrary(); loadStats();
+    }));
+
+    const busy = docs.some(d => d.status === "processing");
+    clearTimeout(pollTimer);
+    if (busy) pollTimer = setTimeout(() => { loadLibrary(); loadStats(); }, 3000);
+    else loadStats();
+  } catch {
+    $("library").innerHTML = `<div class="library-empty">Couldn't load the library — is the service running?</div>`;
+  }
+}
+
+loadStats();
+loadLibrary();
+</script>
+</body>
+</html>

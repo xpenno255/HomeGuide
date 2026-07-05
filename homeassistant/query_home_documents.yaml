@@ -1,0 +1,33 @@
+# Paste this into Extended OpenAI Conversation:
+#   Settings -> Devices & Services -> Extended OpenAI Conversation -> Configure -> Functions
+#
+# Replace HOMEGUIDE_HOST with the LAN IP or hostname of your Docker host
+# (the machine running the HomeGuide container), keeping port 8480.
+#
+# Append this block to any functions you already have defined (it's a YAML list).
+
+- spec:
+    name: query_home_documents
+    description: >-
+      Search the household document library. It contains appliance user manuals,
+      warranties and other house documents. Use this whenever the user asks about
+      how an appliance works, cooking times or temperatures, program or setting
+      names, error or fault codes, cleaning or descaling instructions, maintenance,
+      spare parts, warranty coverage, or anything else that would be written in a
+      manual or household document. Answer using only the returned excerpts and
+      say which document and page the answer came from. If no results are
+      returned, say the information is not in the document library.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: >-
+            A concise search query in English. Include the appliance name and the
+            key terms, e.g. "air fryer chicken cooking time" or
+            "Bosch dishwasher fault code E4".
+      required:
+        - query
+  function:
+    type: rest
+    resource_template: "http://HOMEGUIDE_HOST:8480/query?q={{ query | urlencode }}"
