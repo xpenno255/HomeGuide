@@ -1,0 +1,14 @@
+{
+  "domain": "homeguide",
+  "name": "HomeGuide",
+  "codeowners": ["@xpenno255"],
+  "config_flow": true,
+  "dependencies": ["llm"],
+  "documentation": "https://github.com/xpenno255/HomeGuide",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/xpenno255/HomeGuide/issues",
+  "loggers": ["custom_components.homeguide"],
+  "requirements": [],
+  "version": "0.1.0"
+}

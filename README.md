@@ -70,6 +70,25 @@ Assistant calls is unchanged.
 
 ## 3. Wire up Home Assistant
 
+### Option A: the HomeGuide integration (recommended)
+
+Registers `query_home_documents` with Home Assistant's native LLM tool
+framework, so it appears as a tickable **HomeGuide** API in every conversation
+agent that supports tool selection (Extended OpenAI Conversation, the official
+OpenAI/Ollama integrations, ...). One install covers all your agents, and the
+tool-usage guidance is injected automatically — no prompt editing.
+
+1. Copy [homeassistant/custom_components/homeguide](homeassistant/custom_components/homeguide)
+   into your HA `config/custom_components/` and restart Home Assistant.
+2. **Settings → Devices & Services → Add Integration → HomeGuide**, enter your
+   HomeGuide URL (e.g. `http://192.168.1.50:8480`).
+3. In your conversation agent's options, tick **HomeGuide** in the LLM API /
+   tools selector.
+
+### Option B: Extended OpenAI Conversation function YAML
+
+For EOC setups without LLM API selection:
+
 1. Open **Settings → Devices & Services → Extended OpenAI Conversation → Configure**.
 2. In the **Functions** field, append the contents of
    [homeassistant/query_home_documents.yaml](homeassistant/query_home_documents.yaml)
