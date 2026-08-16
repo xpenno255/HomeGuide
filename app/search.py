@@ -50,6 +50,16 @@ DF_MAX_RATIO = 0.5
 # embeddings cannot do.
 DF_MIN_CHUNKS = 20
 
+# A token matching almost nothing is naming something specific rather than
+# coinciding with ordinary prose, so a chunk that matched it is trustworthy on
+# its own. This is what makes fault codes work, and it covers the ones that
+# contain no digit for the digit rule to catch: LG dryers report OE, tE, dE and
+# PS. Measured over the six-manual library — "oe" appears in 1 chunk of 613,
+# while the shortest ordinary words are far commoner ("tank" 19, "oil" 67,
+# "cleaning" 74), so the gap is wide enough to sit a threshold in.
+RARE_DF_RATIO = 0.005
+RARE_DF_FLOOR = 2
+
 # Words a household asks with, paired to the words manufacturers print. Both
 # retrievers need the expansion: BM25 because the printed word is simply absent
 # from the query, and the vector side because the embeddings rate the pair as
@@ -115,6 +125,14 @@ def _allowed_doc_ids(category: str | None) -> set[int] | None:
     return {r["id"] for r in rows}
 
 
+def _document_frequency(conn, token: str) -> int:
+    """Chunks whose body text matches `token`."""
+    return conn.execute(
+        "SELECT COUNT(*) AS n FROM chunks_fts WHERE chunks_fts MATCH ?",
+        (f'text:"{token}"',),
+    ).fetchone()["n"]
+
+
 def _selective_tokens(tokens: list[str]) -> list[str]:
     """Drop query tokens that match more than DF_MAX_RATIO of the library.
 
@@ -132,10 +150,7 @@ def _selective_tokens(tokens: list[str]) -> list[str]:
         # Measured over body text only. The title is repeated on every chunk of
         # a document, so counting it would push any appliance name over the
         # ceiling and discard the very token that identifies the manual.
-        df = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks_fts WHERE chunks_fts MATCH ?",
-            (f'text:"{t}"',),
-        ).fetchone()["n"]
+        df = _document_frequency(conn, t)
         if 0 < df <= ceiling:
             keep.append(t)
     return keep
@@ -180,9 +195,18 @@ def _fts_ranked(query: str, allowed: set[int] | None) -> tuple[list[int], set[in
         return [], set()
 
     # How many query tokens each candidate actually matched, and whether any of
-    # them was identifier-shaped (contains a digit: "E4", "F21", "AF500").
+    # them identified something specific — either shaped like a code ("E4",
+    # "F21") or simply too rare in the library to be a coincidence ("OE").
     # Body text only: every chunk of a document matches its own title, so
     # counting titles here would make one body word enough to be trusted.
+    # Rarity needs a corpus to be rare against. In a library of a few chunks
+    # every token trivially matches "almost nothing", which would trust every
+    # keyword hit and readmit exactly the coincidences this rule exists to
+    # reject — the same trap as DF_MIN_CHUNKS for the frequency ceiling.
+    total = conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
+    rare_ceiling = (
+        max(RARE_DF_FLOOR, total * RARE_DF_RATIO) if total >= DF_MIN_CHUNKS else 0
+    )
     placeholders = ",".join("?" * len(ranked))
     hits: dict[int, int] = {}
     identifier: set[int] = set()
@@ -191,10 +215,12 @@ def _fts_ranked(query: str, allowed: set[int] | None) -> tuple[list[int], set[in
             f"SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH ? AND rowid IN ({placeholders})",
             [f'text:"{tok}"', *ranked],
         ).fetchall()
-        has_digit = any(ch.isdigit() for ch in tok)
+        distinctive = any(ch.isdigit() for ch in tok) or (
+            _document_frequency(conn, tok) <= rare_ceiling
+        )
         for r in rows:
             hits[r["id"]] = hits.get(r["id"], 0) + 1
-            if has_digit:
+            if distinctive:
                 identifier.add(r["id"])
 
     trusted = {cid for cid in ranked if hits.get(cid, 0) >= 2 or cid in identifier}

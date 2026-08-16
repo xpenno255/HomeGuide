@@ -89,6 +89,36 @@ class TestCorroborationRule:
         add_doc("Troubleshooting\nE4: the water flow sensor detected a blockage.")
         assert search.hybrid_search("E4", k=3)
 
+    def test_letter_only_fault_code_survives_alone(self, add_doc, stub_embeddings):
+        """LG dryers report OE, tE, dE and PS — codes with no digit for the
+        digit rule to catch. They are trusted for being far too rare in the
+        library to be a coincidence."""
+        stub_embeddings.default = 0.1  # vector side finds nothing
+        for i in range(25):
+            add_doc(f"Operating notes {i}\nGeneral guidance for section {i}.", title=f"Doc {i}")
+        add_doc(
+            "Before Calling for Service\nOE DRAIN PUMP ERROR. The drain pump "
+            "motor has malfunctioned. Unplug the appliance and call for service.",
+            title="Dryer manual",
+        )
+        results = search.hybrid_search("what does OE mean", k=3)
+        assert results and "OE" in results[0]["excerpt"]
+
+    def test_bare_letter_only_code_works(self, add_doc, stub_embeddings):
+        stub_embeddings.default = 0.1
+        for i in range(25):
+            add_doc(f"Operating notes {i}\nGeneral guidance for section {i}.", title=f"Doc {i}")
+        add_doc("Service\nOE DRAIN PUMP ERROR occurred.", title="Dryer manual")
+        assert search.hybrid_search("OE", k=3)
+
+    def test_common_word_is_not_made_distinctive_by_rarity(self, add_doc, stub_embeddings):
+        """The rarity rule must not readmit the coincidence it was built
+        around: a word that appears throughout the library stays untrusted."""
+        stub_embeddings.default = 0.1
+        for i in range(25):
+            add_doc(f"Care notes {i}\nCleaning and care guidance for part {i}.", title=f"Doc {i}")
+        assert search.hybrid_search("cleaning", k=3) == []
+
     def test_two_selective_tokens_survive_alone(self, add_doc, stub_embeddings):
         stub_embeddings.default = 0.1
         add_doc("Descaling\nRun a citric acid cycle to descale the boiler.")
