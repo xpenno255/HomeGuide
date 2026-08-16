@@ -84,10 +84,46 @@ class TestLanguageFilter:
     def test_other_languages_dropped(self, text):
         assert not ingest._is_probably_english(text)
 
+    def test_polish_dropped(self):
+        """The Sage manual's Polish section leaked Polish descaling text into
+        results for "descaling" until these markers were added."""
+        assert not ingest._is_probably_english(
+            "ODKAMIENIANIE\nNa wyświetlaczu mruga DESCALE, jeśli jest potrzebny "
+            "proces odkamieniania. Nie należy przerywać procesu, aby nie "
+            "uszkodzić ekspresu przez osad z wody."
+        )
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "ΑΦΑΛΑΤΩΣΗ\nΜετά από τακτική χρήση, το σκληρό νερό μπορεί να "
+            "προκαλέσει συσσώρευση αλάτων στα εσωτερικά εξαρτήματα της συσκευής "
+            "και να μειώσει τη ροή του νερού κατά την παρασκευή του καφέ.",
+            "ОЧИСТКА ОТ НАКИПИ\nПосле регулярного использования жёсткая вода "
+            "может вызвать образование накипи на внутренних компонентах "
+            "прибора и ухудшить вкус приготовленного кофе.",
+        ],
+    )
+    def test_non_latin_scripts_dropped(self, text):
+        """Scored separately: the word matching only sees Latin letters, so a
+        Greek or Cyrillic page hits zero on every marker and would be kept."""
+        assert not ingest._is_probably_english(text)
+
     def test_wordless_page_kept(self):
         """Diagrams and part-label lists have no function words either way;
         dropping a real English page is worse than keeping a foreign one."""
         assert ingest._is_probably_english("A B C D\n1 2 3\nMAX MIN")
+
+    def test_english_label_page_kept(self):
+        """The brewer's English components page has 66 words and not one
+        function word — a "needs English evidence" rule would delete it."""
+        assert ingest._is_probably_english(
+            "EN Components\nA. Water tank lid\nB. Water tank\nC. Filter holder\n"
+            "D. Carafe lid\nE. Glass carafe\nF. Warming plate\nG. Control panel\n"
+            "H. Bloom shower\nI. Drip stop outlet\nJ. Cone filter basket\n"
+            "K. Flat bottom basket\nL. Measuring scoop\nM. Water filter\n"
+            "N. Filter adapter\nRATED VOLTAGE 220-240V 50-60Hz 1650-1980W"
+        )
 
     def test_empty_page_kept(self):
         assert ingest._is_probably_english("")

@@ -23,16 +23,30 @@ _ENGLISH_MARKERS = frozenset(
     "into have any use".split()
 )
 # Function words common in the other languages EU appliance manuals ship in, and
-# rare or absent in English. Cross-language collisions ("die", "van", "non",
-# "in", "no", "on", "man") are deliberately excluded.
+# rare or absent in English. Words that also exist in English ("die", "van",
+# "non", "in", "no", "on", "man", "do", "care", "sue") are deliberately
+# excluded — a false positive here deletes a real English page.
 _FOREIGN_MARKERS = frozenset(
-    "der und mit nicht oder das für ein sie auf "
-    "les des avec pour dans une est vous sur être "
-    "los las con para del que por como este más "
-    "della sono che gli alla nel questo può "
-    "het een voor niet zijn aan kan worden uw "
-    "com não uma dos seu".split()
+    "der und mit nicht oder das für ein sie auf "                    # de
+    "les des avec pour dans une est vous sur être "                  # fr
+    "los las con para del que por como este más "                    # es
+    "della sono che gli alla nel questo può "                        # it
+    "het een voor niet zijn aan kan worden uw "                      # nl
+    "com não uma dos seu "                                           # pt
+    "się nie lub jest aby że przez przed jeśli oraz może należy "    # pl
+    "není nebo jsou které při také musí "                            # cs
+    "ikke eller som skal til det "                                   # da/no
+    "inte till för "                                                 # sv
+    "että tai sekä kun jos ovat "                                    # fi
+    "sau este pentru când "                                          # ro
+    "vagy hogy egy ezt".split()                                      # hu
 )
+
+# Scripts other than Latin never produce English text. Counted separately
+# because the word scoring above only sees Latin letters, so a Greek or
+# Cyrillic page scores zero on every marker and would be kept by default.
+_LATIN = re.compile(r"[A-Za-zÀ-ÿ]")
+_ALPHA = re.compile(r"[^\W\d_]", re.UNICODE)
 
 
 def _is_probably_english(text: str) -> bool:
@@ -48,7 +62,13 @@ def _is_probably_english(text: str) -> bool:
     real English page is far worse than keeping a foreign label list, and the
     embeddings are English-only anyway (bge-small-en-v1.5).
     """
-    words = re.findall(r"[a-zà-ÿ]+", text.lower())
+    alpha = _ALPHA.findall(text)
+    if len(alpha) >= 100:
+        latin = sum(bool(_LATIN.match(c)) for c in alpha)
+        if latin < len(alpha) * 0.5:
+            return False
+
+    words = re.findall(r"[a-zà-ÿąćęłńóśźżěščřůőűåøæ]+", text.lower())
     english = sum(w in _ENGLISH_MARKERS for w in words)
     foreign = sum(w in _FOREIGN_MARKERS for w in words)
     return not (foreign > english and foreign >= 3)
