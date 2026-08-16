@@ -50,6 +50,11 @@ DF_MAX_RATIO = 0.5
 # embeddings cannot do.
 DF_MIN_CHUNKS = 20
 
+# BM25 weight of the document title relative to the chunk body. Enough to steer
+# "air fryer guarantee" to the right manual, small enough that naming an
+# appliance cannot drag in a chunk that says nothing relevant.
+TITLE_WEIGHT = 0.35
+
 _cache_lock = threading.Lock()
 _cache: dict | None = None  # {"ids": np.ndarray, "matrix": np.ndarray, "doc_ids": np.ndarray}
 
@@ -109,8 +114,12 @@ def _selective_tokens(tokens: list[str]) -> list[str]:
     ceiling = total * DF_MAX_RATIO if total >= DF_MIN_CHUNKS else float("inf")
     keep = []
     for t in tokens:
+        # Measured over body text only. The title is repeated on every chunk of
+        # a document, so counting it would push any appliance name over the
+        # ceiling and discard the very token that identifies the manual.
         df = conn.execute(
-            "SELECT COUNT(*) AS n FROM chunks_fts WHERE chunks_fts MATCH ?", (f'"{t}"',)
+            "SELECT COUNT(*) AS n FROM chunks_fts WHERE chunks_fts MATCH ?",
+            (f'text:"{t}"',),
         ).fetchone()["n"]
         if 0 < df <= ceiling:
             keep.append(t)
@@ -147,7 +156,9 @@ def _fts_ranked(query: str, allowed: set[int] | None) -> tuple[list[int], set[in
             return [], set()
         sql += f"AND c.doc_id IN ({','.join('?' * len(allowed))}) "
         params.extend(allowed)
-    sql += "ORDER BY bm25(chunks_fts) LIMIT ?"
+    # The title column is weighted well below the body: it should break ties
+    # between documents, not let a chunk win on the appliance name alone.
+    sql += f"ORDER BY bm25(chunks_fts, 1.0, {TITLE_WEIGHT}) LIMIT ?"
     params.append(CANDIDATES)
     ranked = [r["id"] for r in conn.execute(sql, params).fetchall()]
     if not ranked:
@@ -155,13 +166,15 @@ def _fts_ranked(query: str, allowed: set[int] | None) -> tuple[list[int], set[in
 
     # How many query tokens each candidate actually matched, and whether any of
     # them was identifier-shaped (contains a digit: "E4", "F21", "AF500").
+    # Body text only: every chunk of a document matches its own title, so
+    # counting titles here would make one body word enough to be trusted.
     placeholders = ",".join("?" * len(ranked))
     hits: dict[int, int] = {}
     identifier: set[int] = set()
     for tok in tokens:
         rows = conn.execute(
             f"SELECT rowid AS id FROM chunks_fts WHERE chunks_fts MATCH ? AND rowid IN ({placeholders})",
-            [f'"{tok}"', *ranked],
+            [f'text:"{tok}"', *ranked],
         ).fetchall()
         has_digit = any(ch.isdigit() for ch in tok)
         for r in rows:

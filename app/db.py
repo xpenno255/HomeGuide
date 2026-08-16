@@ -4,10 +4,13 @@ A single shared connection guarded by `lock` is enough at homelab scale;
 WAL mode keeps reads from blocking during ingestion.
 """
 
+import logging
 import os
 import sqlite3
 import threading
 from pathlib import Path
+
+log = logging.getLogger("homeguide")
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "./data"))
 PDF_DIR = DATA_DIR / "pdfs"
@@ -39,9 +42,35 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id);
 
--- porter stemming so voice phrasing matches manual phrasing (cook/cooking, descale/descaling)
-CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, tokenize='porter unicode61');
+-- porter stemming so voice phrasing matches manual phrasing (cook/cooking, descale/descaling).
+-- `title` carries the document title into every chunk: the appliance name is
+-- usually only in the title ("Ninja Air Fryer User Manual"), never in the body,
+-- so without it "air fryer guarantee" cannot be steered to the right manual.
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, title, tokenize='porter unicode61');
 """
+
+
+def _migrate_fts_title(conn: sqlite3.Connection) -> None:
+    """Add the `title` column to an index built before it existed.
+
+    Rebuilt from the chunks already in the database, so no PDF is re-parsed and
+    keyword search keeps working immediately. Embeddings are not rebuilt here —
+    they only pick the title up on reindex.
+    """
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(chunks_fts)")}
+    if not columns or "title" in columns:
+        return
+    log.info("Migrating chunks_fts to include document titles...")
+    conn.executescript(
+        "DROP TABLE chunks_fts;\n"
+        "CREATE VIRTUAL TABLE chunks_fts USING fts5(text, title, tokenize='porter unicode61');"
+    )
+    conn.execute(
+        "INSERT INTO chunks_fts (rowid, text, title) "
+        "SELECT c.id, c.text, d.title FROM chunks c JOIN documents d ON d.id = c.doc_id"
+    )
+    conn.commit()
+    log.info("Migration complete. Reindex documents to add titles to embeddings too.")
 
 
 def connect() -> sqlite3.Connection:
@@ -54,6 +83,7 @@ def connect() -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.executescript(SCHEMA)
+        _migrate_fts_title(conn)
         _conn = conn
     return _conn
 

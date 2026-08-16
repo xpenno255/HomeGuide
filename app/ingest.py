@@ -285,8 +285,13 @@ def ingest_document(doc_id: int) -> None:
         if not page_chunks:
             raise ValueError("No extractable text found (scanned/image-only PDF?)")
 
+        # The appliance name usually appears only in the title the user gave the
+        # document, never in the manual's own body text — the Ninja guarantee
+        # section never says "air fryer". Both retrievers need it, or a library
+        # with two appliances cannot tell whose guarantee is being asked about.
+        title = row["title"]
         texts = [c for _, c in page_chunks]
-        vectors = embeddings.embed_passages(texts)  # None => keyword-only mode
+        vectors = embeddings.embed_passages([f"{title}\n{c}" for c in texts])
 
         with db.lock:
             for i, (page_no, chunk) in enumerate(page_chunks):
@@ -296,8 +301,8 @@ def ingest_document(doc_id: int) -> None:
                     (doc_id, page_no, chunk, blob),
                 )
                 conn.execute(
-                    "INSERT INTO chunks_fts (rowid, text) VALUES (?, ?)",
-                    (cur.lastrowid, chunk),
+                    "INSERT INTO chunks_fts (rowid, text, title) VALUES (?, ?, ?)",
+                    (cur.lastrowid, chunk, title),
                 )
             conn.execute(
                 "UPDATE documents SET status = 'ready', pages = ?, chunk_count = ?, error = NULL WHERE id = ?",

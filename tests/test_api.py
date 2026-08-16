@@ -222,3 +222,60 @@ class TestAsk:
         body = client.post("/api/ask", json={"question": "citric"}).json()
         assert body["results"]
         assert "Answer from" in body["answer"]
+
+
+class TestFtsTitleMigration:
+    """Databases created before titles were indexed have a one-column
+    chunks_fts. They must migrate in place rather than needing a wipe."""
+
+    def _legacy_db(self, tmp_path, monkeypatch):
+        import sqlite3
+
+        from app import db
+
+        monkeypatch.setattr(db, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(db, "PDF_DIR", tmp_path / "pdfs")
+        monkeypatch.setattr(db, "DB_PATH", tmp_path / "homeguide.db")
+        monkeypatch.setattr(db, "_conn", None)
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        raw = sqlite3.connect(tmp_path / "homeguide.db")
+        raw.executescript(
+            db.SCHEMA.replace(
+                "fts5(text, title, tokenize='porter unicode61')",
+                "fts5(text, tokenize='porter unicode61')",
+            )
+        )
+        raw.execute(
+            "INSERT INTO documents (id, title, category, filename, status) "
+            "VALUES (1, 'Ninja Air Fryer User Manual', 'manual', 'x.pdf', 'ready')"
+        )
+        raw.execute("INSERT INTO chunks (id, doc_id, page, text) VALUES (1, 1, 10, 'wipe with a damp cloth')")
+        raw.execute("INSERT INTO chunks_fts (rowid, text) VALUES (1, 'wipe with a damp cloth')")
+        raw.commit()
+        raw.close()
+        return db
+
+    def test_migration_adds_title_column(self, tmp_path, monkeypatch):
+        db = self._legacy_db(tmp_path, monkeypatch)
+        conn = db.connect()
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(chunks_fts)")}
+        assert "title" in columns
+        conn.close()
+
+    def test_migration_backfills_titles_from_existing_chunks(self, tmp_path, monkeypatch):
+        db = self._legacy_db(tmp_path, monkeypatch)
+        conn = db.connect()
+        row = conn.execute(
+            "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?", ('title:"fryer"',)
+        ).fetchone()
+        assert row is not None, "titles were not backfilled"
+        conn.close()
+
+    def test_migration_preserves_body_text(self, tmp_path, monkeypatch):
+        db = self._legacy_db(tmp_path, monkeypatch)
+        conn = db.connect()
+        row = conn.execute(
+            "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?", ('text:"damp"',)
+        ).fetchone()
+        assert row is not None
+        conn.close()

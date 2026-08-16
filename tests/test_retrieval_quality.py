@@ -178,19 +178,21 @@ def test_guarantee_section_found(library):
 
 @needs_manual
 @needs_brewer
-@pytest.mark.xfail(
-    reason="document titles are not indexed. Only chunk text is searchable, and "
-    "the Ninja guarantee section never says 'air fryer' — the appliance name "
-    "lives in the title alone — so naming the appliance cannot steer the "
-    "search. Harmless with one appliance, wrong as soon as two of them have a "
-    "guarantee section.",
-    strict=False,
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("air fryer guarantee period", MANUAL_TITLE),
+        ("coffee machine guarantee", BREWER_TITLE),
+    ],
 )
-def test_naming_the_appliance_picks_the_right_guarantee(library):
-    """Ambiguity should be resolvable the way a user would resolve it: by
-    saying which appliance they mean."""
-    results = library.hybrid_search("air fryer guarantee period", k=3)
-    assert results and results[0]["document"] == MANUAL_TITLE
+def test_naming_the_appliance_picks_the_right_guarantee(library, query, expected):
+    """Two appliances both have a guarantee section, so the query is ambiguous
+    until the user names one. That only works because document titles are
+    indexed — the Ninja guarantee text never says "air fryer" itself."""
+    results = library.hybrid_search(query, k=3)
+    assert results and results[0]["document"] == expected, (
+        f"{query!r} -> {results[0]['document'] if results else 'nothing'}"
+    )
 
 
 @needs_manual
@@ -209,16 +211,10 @@ def test_soapy_water_answer_is_retrievable(library):
 @pytest.mark.parametrize(
     "query",
     [
-        pytest.param(
-            "how do i clean the air fryer",
-            marks=pytest.mark.xfail(
-                reason="the cover page chunk ('10.4L Air Fryer / AF500UK / "
-                "INSTRUCTIONS') carries no answer but still takes rank 1 — the "
-                "prose equivalent of the table banners filtered in "
-                "_extract_table_rows",
-                strict=False,
-            ),
-        ),
+        # Took rank 1 as the cover page ("10.4L Air Fryer / AF500UK /
+        # INSTRUCTIONS") until document titles were indexed: once every chunk of
+        # the manual matches "air fryer", the body text decides which one wins.
+        "how do i clean the air fryer",
         "how do i wash the crisper plates",
         "are the drawers dishwasher safe",
     ],
