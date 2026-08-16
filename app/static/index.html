@@ -287,7 +287,13 @@
   </section>
 
   <section>
-    <h2>Library</h2>
+    <div style="display: flex; align-items: baseline; justify-content: space-between;">
+      <h2>Library</h2>
+      <button class="icon-btn" id="reindex-all-btn"
+              title="Rebuild every document's index from the stored files — needed after upgrading to an image with ingestion improvements">
+        Reindex all
+      </button>
+    </div>
     <div class="card" style="padding: 0;" id="library"></div>
   </section>
 </main>
@@ -406,6 +412,25 @@ $("upload-form").addEventListener("submit", async e => {
 /* ---- library ---- */
 let pollTimer = null;
 
+$("reindex-all-btn").addEventListener("click", async () => {
+  if (!confirm("Rebuild the index for every document from the stored files? " +
+               "Documents stay searchable while each one rebuilds in turn.")) return;
+  const btn = $("reindex-all-btn");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/reindex", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Reindex failed");
+    if (data.skipped_missing_file.length)
+      alert(`Skipped ${data.skipped_missing_file.length} document(s) whose original file is missing — delete and re-upload those.`);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+    loadLibrary(); loadStats();
+  }
+});
+
 async function loadLibrary() {
   try {
     const data = await (await fetch("/api/documents")).json();
@@ -444,8 +469,8 @@ async function loadLibrary() {
       loadLibrary(); loadStats();
     }));
 
-    // Chunking and embeddings are built at upload time, so a search change only
-    // reaches a document that is rebuilt from the file already on disk.
+    // Chunking and embeddings are built at upload time, so an ingestion change
+    // only reaches a document that is rebuilt from the file already on disk.
     document.querySelectorAll("[data-reindex]").forEach(btn => btn.addEventListener("click", async () => {
       if (!confirm(`Rebuild the index for "${btn.dataset.title}"? The document stays in the library.`)) return;
       btn.disabled = true;

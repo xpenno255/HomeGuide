@@ -150,6 +150,40 @@ class TestReindex:
         assert resp.status_code == 409
 
 
+class TestReindexAll:
+    def test_rebuilds_every_document(self, client, stub_embeddings):
+        stub_embeddings.set("citric", 0.85)
+        ids = [
+            _upload(client, text=f"Descaling {i}\nRun a citric acid cycle.", title=f"Doc {i}").json()["id"]
+            for i in range(3)
+        ]
+        before = client.get("/health").json()["chunks"]
+        resp = client.post("/api/reindex")
+        assert resp.status_code == 200
+        assert resp.json()["queued"] == ids
+        assert resp.json()["skipped_missing_file"] == []
+        assert client.get("/health").json()["chunks"] == before
+        docs = client.get("/api/documents").json()["documents"]
+        assert all(d["status"] == "ready" for d in docs)
+
+    def test_missing_file_is_skipped_not_fatal(self, client, stub_embeddings):
+        from app import db
+
+        stub_embeddings.set("citric", 0.85)
+        keep = _upload(client, title="Keep").json()["id"]
+        broken = _upload(client, title="Broken").json()["id"]
+        db.pdf_path(broken, "manual.md").unlink()
+        body = client.post("/api/reindex").json()
+        assert body["queued"] == [keep]
+        assert body["skipped_missing_file"] == [broken]
+        # the survivor is still searchable afterwards
+        assert client.get("/query", params={"q": "citric"}).json()["results"]
+
+    def test_empty_library_is_a_no_op(self, client):
+        body = client.post("/api/reindex").json()
+        assert body == {"queued": [], "skipped_missing_file": []}
+
+
 class TestStartup:
     def test_interrupted_ingest_marked_as_error(self, data_dir, stub_embeddings):
         """A container killed mid-ingest leaves 'processing' rows that would

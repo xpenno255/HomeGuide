@@ -162,6 +162,28 @@ def list_documents():
     return {"documents": [dict(r) for r in rows]}
 
 
+@app.post("/api/reindex")
+def reindex_all(background: BackgroundTasks):
+    """Rebuild every document from its stored file.
+
+    Sequential in one background task: reindexing is CPU-bound embedding work,
+    and running documents in parallel would just thrash the cores while search
+    serves half-rebuilt results for longer. Documents whose original file is
+    missing are skipped and reported rather than failing the whole run.
+    """
+    conn = db.connect()
+    rows = conn.execute("SELECT id, filename FROM documents ORDER BY id").fetchall()
+    todo = [r["id"] for r in rows if db.pdf_path(r["id"], r["filename"]).exists()]
+    skipped = [r["id"] for r in rows if r["id"] not in todo]
+
+    def run(ids: list[int]) -> None:
+        for doc_id in ids:
+            ingest.reindex_document(doc_id)
+
+    background.add_task(run, todo)
+    return {"queued": todo, "skipped_missing_file": skipped}
+
+
 @app.post("/api/documents/{doc_id}/reindex")
 def reindex_document(doc_id: int, background: BackgroundTasks):
     conn = db.connect()
