@@ -54,6 +54,80 @@ class TestChunkPage:
         assert not chunks[0].startswith("[34]")
 
 
+ENGLISH_PAGE = (
+    "DESCALING\nAfter regular use, hard water can cause mineral build up in the "
+    "internal components. We recommend that you descale the machine regularly "
+    "when the light is flashing, and then rinse the tank with fresh water."
+)
+GERMAN_PAGE = (
+    "ENTKALKEN\nNach regelmäßigem Gebrauch kann hartes Wasser zu "
+    "Mineralablagerungen führen. Wir empfehlen, das Gerät regelmäßig zu "
+    "entkalken, und der Tank sollte mit frischem Wasser gespült werden."
+)
+FRENCH_PAGE = (
+    "DÉTARTRAGE\nAprès une utilisation régulière, l'eau dure peut provoquer une "
+    "accumulation de minéraux dans les composants. Nous vous recommandons de "
+    "détartrer la machine avec des produits pour cet usage."
+)
+
+
+class TestLanguageFilter:
+    """EU appliance manuals ship every language in one PDF — the Sage brewer
+    manual is 156 pages of which 19 are English. Indexing the rest lets the
+    agent quote Portuguese back at you, and inflates the page count that
+    strip_repeated_lines scales its threshold to."""
+
+    def test_english_kept(self):
+        assert ingest._is_probably_english(ENGLISH_PAGE)
+
+    @pytest.mark.parametrize("text", [GERMAN_PAGE, FRENCH_PAGE])
+    def test_other_languages_dropped(self, text):
+        assert not ingest._is_probably_english(text)
+
+    def test_wordless_page_kept(self):
+        """Diagrams and part-label lists have no function words either way;
+        dropping a real English page is worse than keeping a foreign one."""
+        assert ingest._is_probably_english("A B C D\n1 2 3\nMAX MIN")
+
+    def test_empty_page_kept(self):
+        assert ingest._is_probably_english("")
+
+    def test_multilingual_pdf_keeps_only_english(self, tmp_path):
+        doc = pymupdf.open()
+        for text in (ENGLISH_PAGE, GERMAN_PAGE, FRENCH_PAGE):
+            page = doc.new_page()
+            page.insert_textbox(pymupdf.Rect(40, 40, 550, 400), text, fontsize=11)
+        path = tmp_path / "multi.pdf"
+        doc.save(path)
+        doc.close()
+        pages = ingest.extract_pages(path)
+        assert len(pages) == 1
+        assert "hard water" in pages[0][1]
+
+    def test_page_numbers_survive_filtering(self, tmp_path):
+        """Skipped pages must not renumber the rest, or citations go wrong."""
+        doc = pymupdf.open()
+        for text in (GERMAN_PAGE, FRENCH_PAGE, ENGLISH_PAGE):
+            page = doc.new_page()
+            page.insert_textbox(pymupdf.Rect(40, 40, 550, 400), text, fontsize=11)
+        path = tmp_path / "multi.pdf"
+        doc.save(path)
+        doc.close()
+        pages = ingest.extract_pages(path)
+        assert [p[0] for p in pages] == [3]
+
+    def test_all_foreign_document_is_still_indexed(self, tmp_path):
+        """A wholly non-English manual is better indexed than not indexed."""
+        doc = pymupdf.open()
+        for text in (GERMAN_PAGE, FRENCH_PAGE):
+            page = doc.new_page()
+            page.insert_textbox(pymupdf.Rect(40, 40, 550, 400), text, fontsize=11)
+        path = tmp_path / "foreign.pdf"
+        doc.save(path)
+        doc.close()
+        assert len(ingest.extract_pages(path)) == 2
+
+
 def _columned_page(columns, width=800, height=600):
     """Render text columns side by side, separated by a real gutter."""
     doc = pymupdf.open()

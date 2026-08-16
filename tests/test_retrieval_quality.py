@@ -28,6 +28,7 @@ import pytest
 
 RECIPES = os.environ.get("HOMEGUIDE_TEST_PDF", "")
 MANUAL = os.environ.get("HOMEGUIDE_TEST_MANUAL_PDF", "")
+BREWER = os.environ.get("HOMEGUIDE_TEST_BREWER_PDF", "")
 
 pytestmark = [
     pytest.mark.corpus,
@@ -41,9 +42,14 @@ needs_manual = pytest.mark.skipif(
     not MANUAL or not Path(MANUAL).exists(),
     reason="set HOMEGUIDE_TEST_MANUAL_PDF to the AF500UK instruction manual",
 )
+needs_brewer = pytest.mark.skipif(
+    not BREWER or not Path(BREWER).exists(),
+    reason="set HOMEGUIDE_TEST_BREWER_PDF to the Sage Precision Brewer manual",
+)
 
 RECIPE_TITLE = "Ninja Air Fryer Quick Start Recipe Guide"
 MANUAL_TITLE = "Ninja Air Fryer User Manual"
+BREWER_TITLE = "Sage Precision Coffee Brewer Manual"
 
 FAULT_CODES = """# Bosch Serie 6 Dishwasher — Troubleshooting
 
@@ -68,6 +74,8 @@ def library(tmp_path_factory):
     sources = [(RECIPE_TITLE, Path(RECIPES)), ("Bosch dishwasher manual", None)]
     if MANUAL and Path(MANUAL).exists():
         sources.insert(1, (MANUAL_TITLE, Path(MANUAL)))
+    if BREWER and Path(BREWER).exists():
+        sources.insert(0, (BREWER_TITLE, Path(BREWER)))
 
     conn = db.connect()
     for title, source in sources:
@@ -119,10 +127,20 @@ def test_chart_row_wins(library, query, expected):
 
 # --- Questions this library genuinely cannot answer. Returning a plausible
 # excerpt is worse than returning nothing: the agent reads it out as fact.
-@pytest.mark.parametrize("query", ["descaling", "lawnmower blade replacement"])
+@pytest.mark.parametrize("query", ["lawnmower blade replacement", "how do i change a tyre"])
 def test_unanswerable_queries_stay_silent(library, query):
     results = library.hybrid_search(query, k=3)
     assert results == [], f"{query!r} -> {[r['excerpt'][:70] for r in results]}"
+
+
+@pytest.mark.skipif(
+    bool(BREWER and Path(BREWER).exists()),
+    reason="descaling is answerable once a machine that descales is in the library",
+)
+def test_descaling_silent_without_a_descaling_appliance(library):
+    """Air fryers do not descale. This was the original example of a confident
+    wrong answer: it used to return dehydrator chart rows."""
+    assert library.hybrid_search("descaling", k=3) == []
 
 
 # --- Exact identifiers are the one thing BM25 does that embeddings cannot.
@@ -152,9 +170,27 @@ def test_care_questions_reach_the_manual(library, query, expected):
 
 @needs_manual
 def test_guarantee_section_found(library):
+    """Every appliance has a guarantee section, so a bare "guarantee period"
+    is genuinely ambiguous — assert it finds one, not which one."""
     results = library.hybrid_search("guarantee period", k=3)
+    assert results and "guarantee" in _excerpts(results)
+
+
+@needs_manual
+@needs_brewer
+@pytest.mark.xfail(
+    reason="document titles are not indexed. Only chunk text is searchable, and "
+    "the Ninja guarantee section never says 'air fryer' — the appliance name "
+    "lives in the title alone — so naming the appliance cannot steer the "
+    "search. Harmless with one appliance, wrong as soon as two of them have a "
+    "guarantee section.",
+    strict=False,
+)
+def test_naming_the_appliance_picks_the_right_guarantee(library):
+    """Ambiguity should be resolvable the way a user would resolve it: by
+    saying which appliance they mean."""
+    results = library.hybrid_search("air fryer guarantee period", k=3)
     assert results and results[0]["document"] == MANUAL_TITLE
-    assert "guarantee" in _excerpts(results)
 
 
 @needs_manual
@@ -208,3 +244,57 @@ def test_warranty_vocabulary_gap(library):
     """"guarantee period" works; "what is the warranty" finds nothing. The HA
     function description tells the agent the library covers warranties."""
     assert library.hybrid_search("what is the warranty", k=3)
+
+
+# --- Multi-language manuals. The Sage brewer manual is 156 pages of which only
+# ~19 are English; the rest is German, French, Dutch, Italian, Spanish and
+# Portuguese. Indexing all of it let the agent quote Portuguese back, and
+# inflated the page count that strip_repeated_lines scales its threshold to.
+@needs_brewer
+def test_only_english_pages_are_indexed(library):
+    from app import db
+
+    conn = db.connect()
+    row = conn.execute(
+        "SELECT pages, chunk_count FROM documents WHERE title = ?", (BREWER_TITLE,)
+    ).fetchone()
+    assert row["pages"] < 60, f"expected the English subset, indexed {row['pages']} pages"
+    assert row["chunk_count"] < 200
+
+
+@needs_brewer
+@pytest.mark.parametrize(
+    "query",
+    ["descaling", "how do i descale the coffee machine", "how much coffee to use"],
+)
+def test_no_foreign_language_results(library, query):
+    """Portuguese descaling instructions used to surface for "descaling"."""
+    foreign = ("descalcificar", "entkalken", "détartrage", "ontkalken", "acumulação")
+    text = _excerpts(library.hybrid_search(query, k=3))
+    assert not any(w in text for w in foreign), f"{query!r} returned non-English text"
+
+
+@needs_brewer
+def test_descaling_is_answerable_from_the_brewer(library):
+    """"descaling" was the canonical unanswerable query until a machine that
+    actually descales joined the library."""
+    results = library.hybrid_search("descaling", k=3)
+    assert results and results[0]["document"] == BREWER_TITLE
+    assert "descal" in _excerpts(results)
+
+
+@needs_brewer
+@pytest.mark.parametrize(
+    "query,expected_doc",
+    [
+        ("how much coffee to use", BREWER_TITLE),
+        ("how often should i replace the water filter", BREWER_TITLE),
+        ("chicken breast cooking time", RECIPE_TITLE),
+    ],
+)
+def test_queries_route_to_the_right_appliance(library, query, expected_doc):
+    """Three appliances in one library must not bleed into each other."""
+    results = library.hybrid_search(query, k=3)
+    assert results and results[0]["document"] == expected_doc, (
+        f"{query!r} -> {results[0]['document'] if results else 'nothing'}"
+    )

@@ -18,8 +18,48 @@ CHUNK_OVERLAP = 220  # trailing lines carried into the next chunk — keeps a ta
 TEXT_SUFFIXES = {".txt", ".md"}
 
 
+_ENGLISH_MARKERS = frozenset(
+    "the and with for this that your from are you will when then before after "
+    "into have any use".split()
+)
+# Function words common in the other languages EU appliance manuals ship in, and
+# rare or absent in English. Cross-language collisions ("die", "van", "non",
+# "in", "no", "on", "man") are deliberately excluded.
+_FOREIGN_MARKERS = frozenset(
+    "der und mit nicht oder das für ein sie auf "
+    "les des avec pour dans une est vous sur être "
+    "los las con para del que por como este más "
+    "della sono che gli alla nel questo può "
+    "het een voor niet zijn aan kan worden uw "
+    "com não uma dos seu".split()
+)
+
+
+def _is_probably_english(text: str) -> bool:
+    """Keep a page unless it is confidently in another language.
+
+    EU appliance manuals ship every language in one PDF — the Sage Precision
+    Brewer manual is 156 pages of which 19 are English. Indexing the rest costs
+    more than wasted space: the agent can quote Portuguese back at you, and
+    `strip_repeated_lines` scales its threshold to the page count, so a document
+    padded 8x stops recognising its own running boilerplate.
+
+    Short or wordless pages (diagrams, part-label lists) are kept — dropping a
+    real English page is far worse than keeping a foreign label list, and the
+    embeddings are English-only anyway (bge-small-en-v1.5).
+    """
+    words = re.findall(r"[a-zà-ÿ]+", text.lower())
+    english = sum(w in _ENGLISH_MARKERS for w in words)
+    foreign = sum(w in _FOREIGN_MARKERS for w in words)
+    return not (foreign > english and foreign >= 3)
+
+
 def extract_pages(path: Path) -> list[tuple[int, str, list[str]]]:
-    """Return (page_number, text, table_rows) triples, 1-indexed."""
+    """Return (page_number, text, table_rows) triples, 1-indexed.
+
+    Page numbers are the document's real page numbers, so they stay correct for
+    citation even when other-language pages are skipped.
+    """
     if path.suffix.lower() in TEXT_SUFFIXES:
         text = path.read_text(encoding="utf-8", errors="replace")
         return [(1, text, [])] if text.strip() else []
@@ -32,7 +72,10 @@ def extract_pages(path: Path) -> list[tuple[int, str, list[str]]]:
             text = _page_text(page)
             if text.strip():
                 pages.append((i, text, _extract_table_rows(page)))
-    return pages
+
+    english = [p for p in pages if _is_probably_english(p[1])]
+    # A wholly non-English manual is still better indexed than not indexed.
+    return english or pages
 
 
 # A gutter must be at least this fraction of the page width to separate columns.
