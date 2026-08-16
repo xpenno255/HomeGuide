@@ -82,6 +82,12 @@ def stub_embeddings(monkeypatch):
     """Semantic search on, with fully controlled similarity scores."""
     stub = StubEmbeddings()
     monkeypatch.setattr(embeddings, "embed_passages", stub.embed_passages)
+    # Titled embedding is bypassed so a registered score *is* the stored
+    # vector's cosine. Blending the title in would shift every score by an
+    # amount these tests are not about; TITLE_MIX has its own tests.
+    monkeypatch.setattr(
+        embeddings, "embed_passages_titled", lambda texts, title: stub.embed_passages(texts)
+    )
     monkeypatch.setattr(embeddings, "embed_query", stub.embed_query)
     monkeypatch.setattr(embeddings, "available", lambda: True)
     monkeypatch.setattr(embeddings, "get_model", lambda: stub)

@@ -56,6 +56,29 @@ def embed_passages(texts: list[str]) -> np.ndarray | None:
     return _normalize(vecs)
 
 
+# How much of the document title to mix into each chunk vector. The appliance
+# name usually exists only in the title, so without this "air fryer guarantee"
+# cannot be steered to the right manual — BM25 alone cannot fix it, because RRF
+# lets the vector ranking decide. Prepending the title to the passage *text*
+# also works but distorts the body: at full strength "sausages cooking time"
+# started returning a Toad in the Hole recipe instead of the cooking chart row,
+# because every recipe chunk began "Ninja Air Fryer Quick Start Recipe Guide".
+# Measured across both failure modes: 0.15 fixes the routing while leaving chart
+# rows at rank 1, and 0.3 is already enough to lose them again.
+TITLE_MIX = 0.15
+
+
+def embed_passages_titled(texts: list[str], title: str) -> np.ndarray | None:
+    """Passage vectors nudged toward their document's title."""
+    vecs = embed_passages(texts)
+    if vecs is None or not title.strip():
+        return vecs
+    title_vec = embed_passages([title])
+    if title_vec is None:
+        return vecs
+    return _normalize(vecs + TITLE_MIX * title_vec[0])
+
+
 def embed_query(text: str) -> np.ndarray | None:
     model = get_model()
     if model is None:

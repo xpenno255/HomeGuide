@@ -119,10 +119,17 @@ def _excerpts(results):
 def test_chart_row_wins(library, query, expected):
     results = library.hybrid_search(query, k=3)
     assert results, f"{query!r} returned nothing"
-    assert expected in results[0]["excerpt"].lower(), (
-        f"{query!r} -> {results[0]['excerpt'][:120]!r}"
-    )
+    top = results[0]["excerpt"].lower()
     assert results[0]["document"] == RECIPE_TITLE
+    assert expected in top, f"{query!r} -> {results[0]['excerpt'][:120]!r}"
+    # Naming the ingredient is not enough: the Toad in the Hole recipe lists
+    # sausages in its ingredients, so an assertion on the word alone passed
+    # while the chart row sat at rank 2. Chart rows are the chunks labelled
+    # with the chart heading; recipe prose never is.
+    assert "cooking chart" in top, (
+        f"{query!r} returned recipe prose, not the chart row: "
+        f"{results[0]['excerpt'][:120]!r}"
+    )
 
 
 # --- Questions this library genuinely cannot answer. Returning a plausible

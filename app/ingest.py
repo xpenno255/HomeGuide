@@ -289,9 +289,11 @@ def ingest_document(doc_id: int) -> None:
         # document, never in the manual's own body text — the Ninja guarantee
         # section never says "air fryer". Both retrievers need it, or a library
         # with two appliances cannot tell whose guarantee is being asked about.
+        # The vector side mixes it in rather than prepending it to the text; see
+        # embeddings.TITLE_MIX for why the obvious version breaks the charts.
         title = row["title"]
         texts = [c for _, c in page_chunks]
-        vectors = embeddings.embed_passages([f"{title}\n{c}" for c in texts])
+        vectors = embeddings.embed_passages_titled(texts, title)
 
         with db.lock:
             for i, (page_no, chunk) in enumerate(page_chunks):
