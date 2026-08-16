@@ -96,6 +96,7 @@ the air fryer?"* or *"what does E4 mean on the dishwasher?"*.
 | `GET /health` | Liveness, doc/chunk counts, search mode |
 | `POST /api/upload` | Multipart: `file`, `title`, `category` |
 | `GET /api/documents` | List library |
+| `POST /api/documents/{id}/reindex` | Rebuild chunks and embeddings from the stored file |
 | `DELETE /api/documents/{id}` | Remove a document |
 | `GET /api/documents/{id}/file` | Original file |
 
@@ -112,5 +113,8 @@ if your context budget allows.
   Docker host: `curl "http://HOMEGUIDE_HOST:8480/health"` from the HA machine.
 - **Upload shows "error"** — hover the row for the reason; almost always a scanned PDF
   needing OCR (see above).
+- **Retrieval didn't improve after upgrading the image** — chunks and embeddings are built
+  at upload time, so indexing improvements only reach documents you already have once you
+  hit **Reindex** on them. It rebuilds from the stored original; nothing is re-uploaded.
 - **No auth by design** — this binds to your LAN with no authentication, like most
   homelab services. Don't expose port 8480 to the internet.

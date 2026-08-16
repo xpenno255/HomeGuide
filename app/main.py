@@ -13,6 +13,7 @@ Endpoints:
 import logging
 import shutil
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, UploadFile
@@ -23,26 +24,28 @@ from . import db, embeddings, ingest, llm, search
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("homeguide")
 
-app = FastAPI(title="HomeGuide", docs_url="/api/docs")
-
 STATIC_DIR = Path(__file__).parent / "static"
 ALLOWED_SUFFIXES = {".pdf", ".txt", ".md"}
 DEFAULT_K = 5
 MAX_K = 10
 
 
-@app.on_event("startup")
-def startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     conn = db.connect()
     # Anything mid-ingest when the container stopped is stale
     with db.lock:
         conn.execute(
-            "UPDATE documents SET status = 'error', error = 'Interrupted during indexing — delete and re-upload' "
+            "UPDATE documents SET status = 'error', error = 'Interrupted during indexing — reindex or re-upload' "
             "WHERE status = 'processing'"
         )
         conn.commit()
     # Warm the embedding model off the request path
     threading.Thread(target=embeddings.get_model, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="HomeGuide", docs_url="/api/docs", lifespan=lifespan)
 
 
 @app.get("/")
@@ -68,7 +71,10 @@ def _run_query(q: str, k: int, category: str | None):
     q = (q or "").strip()
     if not q:
         raise HTTPException(status_code=400, detail="Missing query")
-    k = max(1, min(int(k), MAX_K))
+    try:
+        k = max(1, min(int(k), MAX_K))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="'k' must be an integer")
     results = search.hybrid_search(q, k=k, category=category)
     if not results:
         return {
@@ -154,6 +160,18 @@ def list_documents():
         "FROM documents ORDER BY created_at DESC, id DESC"
     ).fetchall()
     return {"documents": [dict(r) for r in rows]}
+
+
+@app.post("/api/documents/{doc_id}/reindex")
+def reindex_document(doc_id: int, background: BackgroundTasks):
+    conn = db.connect()
+    row = conn.execute("SELECT filename FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not db.pdf_path(doc_id, row["filename"]).exists():
+        raise HTTPException(status_code=409, detail="Original file missing — delete and re-upload")
+    background.add_task(ingest.reindex_document, doc_id)
+    return {"id": doc_id, "status": "processing"}
 
 
 @app.delete("/api/documents/{doc_id}")

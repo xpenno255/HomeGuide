@@ -57,8 +57,20 @@ def _extract_table_rows(page) -> list[str]:
         for row in extracted:
             # A row collapsed into one cell is still a complete, ordered row
             cells = [" ".join(c.split()) for c in row if c and c.strip()]
+            if not cells:
+                continue
             line = " | ".join(cells)
-            if cells and len(line) > 12:
+            if len(cells) >= 2:
+                if len(line) > 12:
+                    rows.append(line)
+            # A single-cell row is either a merged data row ("Asparagus Cut in
+            # 2.5cm pieces, blanched 60°C 6-8 hours") or a section banner
+            # spanning the table ("FRESH MEAT, POULTRY, FISH"). Banners carry no
+            # answer but are short and header-prefixed, which scores them
+            # absurdly well against short queries — they were landing in the top
+            # 3 for "dishwasher safe parts". Real rows quote an amount, a
+            # temperature or a time, so require a digit and some substance.
+            elif len(line) >= 30 and any(ch.isdigit() for ch in line):
                 rows.append(line)
     return rows
 
@@ -202,17 +214,46 @@ def ingest_document(doc_id: int) -> None:
             conn.commit()
 
 
+def _clear_chunks(conn, doc_id: int) -> None:
+    conn.execute(
+        "DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE doc_id = ?)",
+        (doc_id,),
+    )
+    conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
+
+
+def reindex_document(doc_id: int) -> bool:
+    """Re-chunk and re-embed a document from the file already on disk.
+
+    Chunking and embedding happen at upload time, so a retrieval change only
+    reaches existing documents through this — otherwise the only route is
+    deleting every document and re-uploading the originals by hand.
+    """
+    conn = db.connect()
+    row = conn.execute("SELECT filename FROM documents WHERE id = ?", (doc_id,)).fetchone()
+    if row is None:
+        return False
+    if not db.pdf_path(doc_id, row["filename"]).exists():
+        return False
+    with db.lock:
+        _clear_chunks(conn, doc_id)
+        conn.execute(
+            "UPDATE documents SET status = 'processing', chunk_count = 0, error = NULL WHERE id = ?",
+            (doc_id,),
+        )
+        conn.commit()
+    search.invalidate_cache()
+    ingest_document(doc_id)
+    return True
+
+
 def delete_document(doc_id: int) -> bool:
     conn = db.connect()
     row = conn.execute("SELECT filename FROM documents WHERE id = ?", (doc_id,)).fetchone()
     if row is None:
         return False
     with db.lock:
-        conn.execute(
-            "DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE doc_id = ?)",
-            (doc_id,),
-        )
-        conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
+        _clear_chunks(conn, doc_id)
         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
         conn.commit()
     db.pdf_path(doc_id, row["filename"]).unlink(missing_ok=True)

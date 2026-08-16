@@ -432,6 +432,7 @@ async function loadLibrary() {
         ${status}
         <div class="doc-actions">
           <a class="icon-btn" href="/api/documents/${d.id}/file" target="_blank" rel="noopener">Open</a>
+          <button class="icon-btn" data-reindex="${d.id}" data-title="${esc(d.title)}">Reindex</button>
           <button class="icon-btn danger" data-del="${d.id}" data-title="${esc(d.title)}">Delete</button>
         </div>
       </div>`;
@@ -440,6 +441,16 @@ async function loadLibrary() {
     document.querySelectorAll("[data-del]").forEach(btn => btn.addEventListener("click", async () => {
       if (!confirm(`Delete "${btn.dataset.title}" from the library?`)) return;
       await fetch(`/api/documents/${btn.dataset.del}`, { method: "DELETE" });
+      loadLibrary(); loadStats();
+    }));
+
+    // Chunking and embeddings are built at upload time, so a search change only
+    // reaches a document that is rebuilt from the file already on disk.
+    document.querySelectorAll("[data-reindex]").forEach(btn => btn.addEventListener("click", async () => {
+      if (!confirm(`Rebuild the index for "${btn.dataset.title}"? The document stays in the library.`)) return;
+      btn.disabled = true;
+      const resp = await fetch(`/api/documents/${btn.dataset.reindex}/reindex`, { method: "POST" });
+      if (!resp.ok) alert((await resp.json().catch(() => ({}))).detail || "Reindex failed");
       loadLibrary(); loadStats();
     }));
 
