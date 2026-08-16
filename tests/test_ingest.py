@@ -54,6 +54,80 @@ class TestChunkPage:
         assert not chunks[0].startswith("[34]")
 
 
+def _columned_page(columns, width=800, height=600):
+    """Render text columns side by side, separated by a real gutter."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=width, height=height)
+    col_w = width / len(columns)
+    for c, lines in enumerate(columns):
+        for i, line in enumerate(lines):
+            rect = pymupdf.Rect(
+                c * col_w + 20, 40 + i * 40, (c + 1) * col_w - 20, 40 + i * 40 + 34
+            )
+            page.insert_textbox(rect, line, fontsize=9)
+    return doc, page
+
+
+class TestColumnOrder:
+    """Manuals are printed as two-page spreads, so PyMuPDF's default block order
+    interleaves unrelated sections — the AF500UK manual emitted its whole
+    TROUBLESHOOTING column before the CLEANING & MAINTENANCE heading's content.
+    """
+
+    def test_columns_read_top_to_bottom_not_across(self):
+        doc, page = _columned_page(
+            [
+                ["CLEANING AND MAINTENANCE", "Wipe the main unit with a damp cloth.",
+                 "Never immerse the unit in water."],
+                ["TROUBLESHOOTING GUIDE", "Why is the unit beeping?",
+                 "The food is finished cooking."],
+            ]
+        )
+        text = ingest._page_text(page)
+        doc.close()
+        left = text.index("Never immerse")
+        right = text.index("TROUBLESHOOTING GUIDE")
+        assert left < right, f"columns interleaved:\n{text}"
+
+    def test_heading_stays_with_its_own_column(self):
+        doc, page = _columned_page(
+            [
+                ["CLEANING AND MAINTENANCE", "Wash the crisper plates by hand."],
+                ["TROUBLESHOOTING GUIDE", "Why is the unit beeping?"],
+            ]
+        )
+        chunks = ingest.chunk_page(ingest._page_text(page))
+        doc.close()
+        wash = next(c for c in chunks if "crisper" in c)
+        assert "TROUBLESHOOTING" not in wash.split("Wash")[0]
+
+    def test_single_column_page_is_unchanged(self):
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_textbox(pymupdf.Rect(50, 50, 500, 300),
+                            "DESCALING\nRun a citric acid cycle once a month.", fontsize=10)
+        assert ingest._page_text(page).split() == page.get_text("text").split()
+        doc.close()
+
+    def test_no_gutter_means_no_column_split(self):
+        doc, page = _columned_page([["ONE COLUMN ONLY", "All the text is here."]])
+        blocks = [b for b in page.get_text("blocks") if b[6] == 0 and b[4].strip()]
+        assert ingest._column_bounds(blocks, page.rect.width) == []
+        doc.close()
+
+    def test_full_width_banner_does_not_hide_the_gutter(self):
+        """A footer spanning both columns must not stop them being detected."""
+        doc, page = _columned_page(
+            [["LEFT HEADING", "Left column text."], ["RIGHT HEADING", "Right column text."]]
+        )
+        page.insert_textbox(
+            pymupdf.Rect(20, 560, 780, 590), "ninjakitchen.co.uk  17  18", fontsize=8
+        )
+        blocks = [b for b in page.get_text("blocks") if b[6] == 0 and b[4].strip()]
+        assert ingest._column_bounds(blocks, page.rect.width)
+        doc.close()
+
+
 class TestStripRepeatedLines:
     def _pages(self, texts):
         return [(i, t, []) for i, t in enumerate(texts, start=1)]

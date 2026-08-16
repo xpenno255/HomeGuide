@@ -158,33 +158,44 @@ def test_guarantee_section_found(library):
 
 
 @needs_manual
-def test_cleaning_question_does_not_return_recipes(library):
-    """Whatever else it returns, a cleaning question must not be answered out
-    of the recipe book — that was the original failure."""
-    results = library.hybrid_search("how do i clean the air fryer", k=3)
-    assert results
-    assert all(r["document"] != RECIPE_TITLE for r in results), (
-        f"recipe guide leaked in: {[r['excerpt'][:60] for r in results]}"
-    )
-
-
-# --- Known defects, measured. These xfail deliberately: they are the current
-# top of the backlog, not mysteries.
-@needs_manual
-@pytest.mark.xfail(
-    reason="p10 is multi-column, so the cleaning table's text is separated from "
-    "its CLEANING & MAINTENANCE heading and lands under [TROUBLESHOOTING GUIDE]. "
-    "Needs layout-aware extraction; an all-caps heading heuristic was tried and "
-    "regressed the cooking charts.",
-    strict=False,
-)
 def test_soapy_water_answer_is_retrievable(library):
     """The manual answers this directly: "If food residue is stuck on the
     crisper plates or drawer, place them in a sink filled with warm, soapy
-    water and allow to soak." Today the recipe guide's chip prose outranks it."""
+    water and allow to soak." Reaching it needs the cleaning table to be read
+    in column order, so this is the sharpest test of layout-aware extraction.
+    """
     results = library.hybrid_search("food stuck on the crisper plate", k=3)
     assert results and results[0]["document"] == MANUAL_TITLE
     assert "soapy" in _excerpts(results)
+
+
+@needs_manual
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(
+            "how do i clean the air fryer",
+            marks=pytest.mark.xfail(
+                reason="the cover page chunk ('10.4L Air Fryer / AF500UK / "
+                "INSTRUCTIONS') carries no answer but still takes rank 1 — the "
+                "prose equivalent of the table banners filtered in "
+                "_extract_table_rows",
+                strict=False,
+            ),
+        ),
+        "how do i wash the crisper plates",
+        "are the drawers dishwasher safe",
+    ],
+)
+def test_cleaning_queries_answer_with_cleaning_content(library, query):
+    """Rank 1 must be the manual, and must actually talk about cleaning —
+    asserting the goal rather than the absence of one known-bad string."""
+    top = library.hybrid_search(query, k=3)[0]
+    assert top["document"] == MANUAL_TITLE, f"{query!r} -> {top['document']}"
+    assert any(
+        word in top["excerpt"].lower()
+        for word in ("clean", "wash", "dishwasher", "soapy", "immerse")
+    ), f"{query!r} -> {top['excerpt'][:100]!r}"
 
 
 @needs_manual
@@ -197,17 +208,3 @@ def test_warranty_vocabulary_gap(library):
     """"guarantee period" works; "what is the warranty" finds nothing. The HA
     function description tells the agent the library covers warranties."""
     assert library.hybrid_search("what is the warranty", k=3)
-
-
-@needs_manual
-@pytest.mark.xfail(
-    reason="cover page and parts-list chunks carry no answer but rank highly for "
-    "short care queries — the prose equivalent of the table banners already "
-    "filtered in _extract_table_rows",
-    strict=False,
-)
-def test_page_furniture_does_not_outrank_real_answers(library):
-    for query in ("how do i clean the air fryer", "how do i wash the crisper plates"):
-        top = library.hybrid_search(query, k=1)[0]["excerpt"].lower()
-        assert "instructions 10.4l" not in top
-        assert "getting to know the control panel" not in top

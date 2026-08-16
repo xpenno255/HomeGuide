@@ -29,10 +29,69 @@ def extract_pages(path: Path) -> list[tuple[int, str, list[str]]]:
     pages = []
     with pymupdf.open(path) as doc:
         for i, page in enumerate(doc, start=1):
-            text = page.get_text("text")
+            text = _page_text(page)
             if text.strip():
                 pages.append((i, text, _extract_table_rows(page)))
     return pages
+
+
+# A gutter must be at least this fraction of the page width to separate columns.
+GUTTER_MIN_RATIO = 0.02
+# Blocks wider than this span columns (banners, footers) and cannot define them.
+WIDE_BLOCK_RATIO = 0.6
+
+
+def _column_bounds(blocks, width: float) -> list[float]:
+    """x positions of the vertical whitespace gutters separating columns."""
+    narrow = [b for b in blocks if (b[2] - b[0]) < WIDE_BLOCK_RATIO * width]
+    if len(narrow) < 4:
+        return []
+    covered = bytearray(int(width) + 2)
+    for b in narrow:
+        for x in range(max(0, int(b[0])), min(int(width), int(b[2])) + 1):
+            covered[x] = 1
+    min_gutter = max(8, int(GUTTER_MIN_RATIO * width))
+    first, last = int(min(b[0] for b in narrow)), int(max(b[2] for b in narrow))
+    bounds: list[float] = []
+    run_start: int | None = None
+    for x in range(first, last + 1):
+        if not covered[x]:
+            if run_start is None:
+                run_start = x
+        else:
+            if run_start is not None and x - run_start >= min_gutter:
+                bounds.append((run_start + x) / 2)
+            run_start = None
+    return bounds
+
+
+def _page_text(page) -> str:
+    """Page text in column reading order.
+
+    PyMuPDF's default order follows the PDF's internal draw order, which on a
+    multi-column page interleaves the columns. Manuals are printed as two-page
+    spreads, so this is not a cosmetic problem: on the AF500UK manual the
+    CLEANING & MAINTENANCE heading sits in the left half while the right half
+    holds TROUBLESHOOTING GUIDE, and the default order emitted the whole
+    troubleshooting column first — separating every cleaning instruction from
+    its own heading and labelling it with the wrong one.
+
+    Blocks are grouped into columns by the vertical whitespace between them,
+    then read top-to-bottom within each column. A page with no gutter wide
+    enough to split on falls back to the default extraction unchanged.
+    """
+    blocks = [b for b in page.get_text("blocks") if b[6] == 0 and b[4].strip()]
+    if len(blocks) < 4:
+        return page.get_text("text")
+    bounds = _column_bounds(blocks, page.rect.width)
+    if not bounds:
+        return page.get_text("text")
+
+    def order(b):
+        column = sum(1 for x in bounds if b[0] >= x)
+        return (column, round(b[1]), round(b[0]))
+
+    return "\n".join(b[4].strip() for b in sorted(blocks, key=order))
 
 
 def _extract_table_rows(page) -> list[str]:

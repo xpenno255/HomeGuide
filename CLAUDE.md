@@ -67,6 +67,10 @@ Four tuned behaviours embody real failures — none are arbitrary, and loosening
 - Vector-before-FTS ordering in RRF fusion — tie-breaks favor the calibrated retriever.
 
 **Ingestion** ([app/ingest.py](app/ingest.py)) encodes the lessons from real manuals, which are dominated by tables and page furniture:
+
+0. `_page_text` reads each page in **column order**, not PyMuPDF's default block order. Manuals are printed as two-page spreads: the AF500UK manual's page 10 is `CLEANING & MAINTENANCE` in the left half and `TROUBLESHOOTING GUIDE` in the right, and the default order emitted the entire troubleshooting column first — so every cleaning instruction was chunked away from its own heading and labelled `[TROUBLESHOOTING GUIDE]`. Columns are found from the vertical whitespace gutters between blocks (blocks wider than 60% of the page can't define a gutter, so footers don't mask it); a page with no wide-enough gutter falls back to default extraction untouched. Before this, "food stuck on the crisper plate" lost to recipe prose even though the manual answers it verbatim.
+   > An earlier attempt to fix the same symptom by detecting all-caps section headings mid-page was **reverted**: it read recipe furniture like `COOK TIME: 22 MINUTES | MAKES: 4 SERVINGS` as a heading and knocked the cooking charts off rank 1. Reading order was the root cause; heading heuristics on top of scrambled text are not.
+
 1. `strip_repeated_lines` removes running banners (short lines on ≥⅓ of pages) — otherwise "NINJA AIR FRYER" on every page makes all pages match appliance queries equally
 2. Line-aware chunking with trailing overlap (not paragraph-based — chart pages have no blank lines and get cut mid-row otherwise)
 3. Every chunk is prefixed with the page heading (`[Air Fry Cooking Chart]`)
