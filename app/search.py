@@ -43,6 +43,13 @@ STOPWORDS = frozenset(
 # words are whatever the library happens to be about.
 DF_MAX_RATIO = 0.5
 
+# ...but document frequency is only meaningful once there is a corpus to measure
+# against. In a library of one short document every token trivially appears in
+# "most" chunks, which would discard the whole query and silently switch keyword
+# search off — taking exact fault-code lookup with it, the one thing the
+# embeddings cannot do.
+DF_MIN_CHUNKS = 20
+
 _cache_lock = threading.Lock()
 _cache: dict | None = None  # {"ids": np.ndarray, "matrix": np.ndarray, "doc_ids": np.ndarray}
 
@@ -99,7 +106,7 @@ def _selective_tokens(tokens: list[str]) -> list[str]:
     total = conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
     if not total:
         return []
-    ceiling = total * DF_MAX_RATIO
+    ceiling = total * DF_MAX_RATIO if total >= DF_MIN_CHUNKS else float("inf")
     keep = []
     for t in tokens:
         df = conn.execute(

@@ -18,22 +18,34 @@ DATA_DIR=/tmp/homeguide-test FASTEMBED_CACHE_PATH=/tmp/homeguide-test/models \
   .venv/bin/uvicorn app.main:app --port 8490
 ```
 
-There is no test suite; verification is exercising the API. The established flow after any ingestion/search change:
-
 ```bash
-rm -rf /tmp/homeguide-test/homeguide.db* /tmp/homeguide-test/pdfs   # chunks are built at upload time
-curl -X POST localhost:8490/api/upload -F file=@manual.pdf -F "title=..." -F "category=manual"
-curl "localhost:8490/query?q=air%20fryer%20chicken%20breast%20cooking%20time&k=5"
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pytest                     # fast: stubbed embeddings, no model download
 ```
 
-Retrieval regression cases that must keep passing. The only document indexed in production is `AF500UK_IG.pdf`, which is the Ninja **Inspiration Guide** (a recipe book) — it has cooking charts but no troubleshooting section, no fault codes and no care instructions, so fault-code cases need a separate fixture:
-- Cooking-chart queries ("chicken breast cooking time", "sausages cooking time", "what temperature for lamb chops") return the chart *row* at rank 1, not recipe prose
-- Exact fault codes return the troubleshooting chunk — verify against a fixture containing codes, not the AF500UK guide. A bare "E4" must work as well as "what does E4 mean"; identifier tokens are the one thing BM25 does that the embeddings cannot
-- Queries the library cannot answer ("descaling", "cleaning and care", "dishwasher safe parts", "lawnmower blade replacement") return zero results — the agent is told to say "not in the library" rather than guess
+`pytest` runs in under a second because embeddings are stubbed with exactly controllable cosine scores — those tests cover retrieval *mechanics* (the similarity floor, the DF filter, the corroboration rule, fusion, the API contract). CI runs exactly this.
 
-Known residual: "how do i clean the air fryer" still returns three recipe chunks. They clear the cosine floor legitimately (0.75) because the query shares heavy vocabulary with the corpus, and correct chart answers only score 0.78-0.82 — the 0.03 margin is too thin to threshold. This should resolve once the actual AF500 instruction manual is indexed and the query has a real answer to find; recheck it then rather than tightening `MIN_SIM`.
+Whether the real model actually separates good answers from bad is a corpus question, and lives in `tests/test_retrieval_quality.py`. It is skipped unless you point it at a real manual, and **it is the check that matters after any ingestion or retrieval change**:
 
-To test the LLM answer path (`/api/ask`) without real inference, run a stub OpenAI-compatible server (see git history for `/tmp/fake_vllm.py`) and set `LLM_BASE_URL` to it. Do NOT test against the Ollama on 192.168.1.102:11434 — it is deliberately dormant (vLLM holds the GPU) and completions hang forever.
+```bash
+HOMEGUIDE_TEST_PDF=~/path/AF500UK_IG.pdf .venv/bin/pytest tests/test_retrieval_quality.py
+```
+
+For manual poking, the API flow is:
+
+```bash
+curl -X POST localhost:8490/api/upload -F file=@manual.pdf -F "title=..." -F "category=manual"
+curl "localhost:8490/query?q=air%20fryer%20chicken%20breast%20cooking%20time&k=5"
+curl -X POST localhost:8490/api/documents/1/reindex   # after an ingestion change
+```
+
+The three retrieval behaviours that must keep passing are asserted in `tests/test_retrieval_quality.py` — chart *rows* at rank 1 for cooking questions, exact fault codes found (including a bare "E4"), and silence for questions the library cannot answer. Read that file rather than trusting a list here.
+
+Two things it is easy to get wrong about the corpus:
+- `AF500UK_IG.pdf` is the Ninja **Inspiration Guide** — a recipe book. It has cooking charts but no troubleshooting section, no fault codes and no care instructions, so fault-code cases use a separate inline fixture, not this PDF.
+- One `xfail` is deliberate: "how do i clean the air fryer" returns recipe chunks that clear the cosine floor legitimately (~0.75), because the query shares heavy vocabulary with the corpus while correct chart answers only reach 0.78-0.82. The margin is too thin to threshold. Expect it to pass once the real AF500 *instruction* manual is indexed — at which point delete the xfail, don't tighten `MIN_SIM`.
+
+`/api/ask` is covered by tests with `llm.ask` monkeypatched. To exercise it against real inference, set `LLM_BASE_URL` to an OpenAI-compatible server. Do NOT point it at the Ollama on 192.168.1.102:11434 — it is deliberately dormant (vLLM holds the GPU) and completions hang forever.
 
 ## Deployment
 
