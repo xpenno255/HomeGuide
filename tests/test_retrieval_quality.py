@@ -238,15 +238,31 @@ def test_cleaning_queries_answer_with_cleaning_content(library, query):
 
 
 @needs_manual
+@pytest.mark.parametrize("query", ["what is the warranty", "warranty"])
+def test_warranty_finds_the_guarantee_section(library, query):
+    """UK manuals say "Guarantee" and never "warranty", so the word is absent
+    from the index and the embeddings rated the pair related but under MIN_SIM
+    (0.676). The synonym fallback closes it; the HA function description
+    promises the library covers warranties, so this has to work."""
+    results = library.hybrid_search(query, k=3)
+    assert results, f"{query!r} returned nothing"
+    assert "guarantee" in _excerpts(results)
+
+
+@needs_manual
+@needs_brewer
 @pytest.mark.xfail(
-    reason="the manual says 'Guarantee' (UK usage) and never 'warranty', so the "
-    "token is absent from the index and the vector side stays under MIN_SIM",
+    reason="naming the appliance does not steer a warranty query. The word is "
+    "in neither manual's body, so the strongest guarantee section wins on "
+    "semantics whichever appliance was asked about, and TITLE_MIX cannot be "
+    "raised to compensate — 0.3 loses the cooking charts. Synonym expansion "
+    "does not help either: it is a fallback that never fires here, because the "
+    "wrong-appliance answer means the search did not come back empty.",
     strict=False,
 )
-def test_warranty_vocabulary_gap(library):
-    """"guarantee period" works; "what is the warranty" finds nothing. The HA
-    function description tells the agent the library covers warranties."""
-    assert library.hybrid_search("what is the warranty", k=3)
+def test_naming_the_appliance_steers_a_warranty_query(library):
+    results = library.hybrid_search("air fryer warranty period", k=3)
+    assert results and results[0]["document"] == MANUAL_TITLE
 
 
 # --- Multi-language manuals. The Sage brewer manual is 156 pages of which only

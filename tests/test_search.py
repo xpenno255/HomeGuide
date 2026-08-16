@@ -181,3 +181,46 @@ class TestCacheInvalidation:
         assert search.hybrid_search("citric", k=3)
         ingest.delete_document(doc_id)
         assert search.hybrid_search("citric", k=3) == []
+
+
+class TestSynonymFallback:
+    """Household words versus manufacturer words. Expansion runs only when the
+    library was about to return nothing, so it cannot disturb a working query —
+    rewriting every query was tried and diluted appliance names badly enough to
+    send "air fryer guarantee" to the coffee machine."""
+
+    def test_partner_word_is_appended(self):
+        assert search.expand_synonyms("what is the warranty") == (
+            "what is the warranty guarantee"
+        )
+
+    def test_no_change_when_both_words_present(self):
+        q = "warranty and guarantee terms"
+        assert search.expand_synonyms(q) == q
+
+    def test_unrelated_query_untouched(self):
+        q = "sausages cooking time"
+        assert search.expand_synonyms(q) == q
+
+    def test_expansion_is_case_insensitive(self):
+        assert "guarantee" in search.expand_synonyms("WARRANTY period")
+
+    def test_fallback_finds_the_manufacturer_word(self, add_doc, stub_embeddings):
+        stub_embeddings.set("Guarantee", 0.85)
+        add_doc("Guarantee\nYour appliance carries a two year Guarantee.")
+        assert search.hybrid_search("warranty", k=3)
+
+    def test_working_query_is_not_rewritten(self, add_doc, stub_embeddings):
+        """The whole point of the fallback: a query that already returns
+        something must be answered from exactly what it asked for."""
+        stub_embeddings.set("Guarantee", 0.85)
+        stub_embeddings.set("Warranty", 0.95)
+        add_doc("Guarantee\nThe Guarantee covers manufacturing defects.", title="A")
+        add_doc("Warranty\nThe Warranty covers accidental damage.", title="B")
+        top = search.hybrid_search("warranty", k=1)[0]
+        assert "accidental" in top["excerpt"], "fallback fired on a working query"
+
+    def test_no_results_still_possible(self, add_doc, stub_embeddings):
+        stub_embeddings.default = 0.1
+        add_doc("Guarantee\nYour appliance carries a two year Guarantee.")
+        assert search.hybrid_search("lawnmower blade replacement", k=3) == []

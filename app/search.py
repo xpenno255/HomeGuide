@@ -50,6 +50,21 @@ DF_MAX_RATIO = 0.5
 # embeddings cannot do.
 DF_MIN_CHUNKS = 20
 
+# Words a household asks with, paired to the words manufacturers print. Both
+# retrievers need the expansion: BM25 because the printed word is simply absent
+# from the query, and the vector side because the embeddings rate the pair as
+# related but not related *enough* — "what is the warranty" scored 0.676 against
+# the guarantee sections, just under MIN_SIM, so the right chunks were ranked
+# correctly and then discarded. Expanding lifts the same query to 0.765.
+#
+# Keep this list short and evidence-led. Every entry is a query rewrite applied
+# to the whole library, so an unmeasured guess here is a regression waiting to
+# happen in a document nobody was thinking about.
+SYNONYMS = {
+    "warranty": "guarantee",   # UK manuals say guarantee; people ask warranty
+    "guarantee": "warranty",
+}
+
 # BM25 weight of the document title relative to the chunk body. Enough to steer
 # "air fryer guarantee" to the right manual, small enough that naming an
 # appliance cannot drag in a chunk that says nothing relevant.
@@ -201,7 +216,36 @@ def _vector_ranked(query: str, allowed: set[int] | None) -> list[int]:
     return [int(cache["ids"][i]) for i in order if scores[i] >= MIN_SIM]
 
 
+def expand_synonyms(query: str) -> str:
+    """Append the manufacturer's word for anything the household asked for."""
+    tokens = [t.lower() for t in re.findall(r"[A-Za-z0-9]+", query)]
+    seen = set(tokens)
+    extra = []
+    for token in tokens:
+        partner = SYNONYMS.get(token)
+        if partner and partner not in seen:
+            extra.append(partner)
+            seen.add(partner)
+    return f"{query} {' '.join(extra)}" if extra else query
+
+
 def hybrid_search(query: str, k: int = 4, category: str | None = None) -> list[dict]:
+    """Search, and only if that finds nothing, try again with synonyms.
+
+    Expansion is a fallback rather than a rewrite because rewriting every query
+    is not free: expanding "air fryer guarantee period" to include "warranty"
+    diluted the appliance name enough to hand the answer to the coffee machine.
+    Running it only when the library was about to say "not in the library"
+    cannot regress a query that already works.
+    """
+    results = _hybrid_search(query, k, category)
+    if results:
+        return results
+    expanded = expand_synonyms(query)
+    return _hybrid_search(expanded, k, category) if expanded != query else results
+
+
+def _hybrid_search(query: str, k: int, category: str | None) -> list[dict]:
     allowed = _allowed_doc_ids(category)
     fts_ids, fts_trusted = _fts_ranked(query, allowed)
     vec_ids = _vector_ranked(query, allowed)
