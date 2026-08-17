@@ -15,12 +15,13 @@ API_NAME = "HomeGuide"
 # for the tool instead of inventing appliance instructions; edit carefully.
 API_PROMPT = (
     "You have access to the household document library via the "
-    "query_home_documents tool. For any question about appliances, manuals, "
-    "cooking times or temperatures, error or fault codes, cleaning or "
-    "maintenance, spare parts, warranties or house paperwork, call it before "
-    "answering, and cite the document and page the answer came from. If it "
-    "returns no results, say the information is not in the document library. "
-    "Never invent appliance instructions."
+    "query_home_documents tool. For ANY question about appliances, manuals, "
+    "settings, features, cooking times or temperatures, error or fault codes, "
+    "cleaning or maintenance, spare parts, warranties or house paperwork, you "
+    "MUST call it before answering, and cite the document and page the answer "
+    "came from. If it returns no results, say the information is not in the "
+    "document library. Never state what a manual does or does not contain "
+    "unless the tool result told you, and never invent appliance instructions."
 )
 
 # Mirrors the tested description in homeassistant/query_home_documents.yaml.
