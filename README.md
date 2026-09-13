@@ -244,3 +244,7 @@ its delegate in HomeGuide options, then select HomeGuide Assist in your voice
 assistant settings. This avoids the measured empty-answer problem for reviewed
 procedures. Details, supported questions and source checks are in
 [Reviewed procedures](docs/reviewed-procedures.md).
+
+## Licence
+
+HomeGuide is released under the [MIT licence](LICENSE).
