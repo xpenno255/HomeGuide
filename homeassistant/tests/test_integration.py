@@ -123,3 +123,17 @@ async def test_conversation_delegates_other_requests_preserving_context(tmp_path
     # Renamed HomeGuide entities must not produce recursive delegation.
     monkeypatch.setattr(conversation,'async_get_agent',lambda *args:agent)
     assert (await agent.async_process(request)).response.speech['plain']['speech']
+
+
+@pytest.mark.asyncio
+async def test_reviewed_lookup_outage_returns_explanation_without_generation(tmp_path,monkeypatch):
+    from custom_components.homeguide.conversation import HomeGuideConversation
+    from homeassistant.components import conversation
+    from homeassistant.core import Context
+    e=entry();e.entry_id='test';e.runtime_data.client.request.side_effect=TimeoutError()
+    agent=HomeGuideConversation(e);agent.hass=HomeAssistant(str(tmp_path))
+    def forbidden(*args):pytest.fail('Do not generate unverified defrost settings during an outage')
+    monkeypatch.setattr(conversation,'async_get_agent',forbidden)
+    request=conversation.ConversationInput(text='microwave defrost 500g mince',context=Context(),conversation_id=None,device_id=None,satellite_id=None,language='en',agent_id='conversation.homeguide_assist')
+    result=await agent.async_process(request)
+    assert 'could not be reached' in result.response.speech['plain']['speech']

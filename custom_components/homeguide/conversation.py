@@ -1,4 +1,6 @@
 """Optional Assist front-end: reviewed answers bypass generation entirely."""
+import re
+
 import aiohttp
 from homeassistant.components import conversation
 from homeassistant.helpers import intent
@@ -32,14 +34,15 @@ class HomeGuideConversation(conversation.ConversationEntity):
         coordinator = self.entry.runtime_data
         result = None
         text = user_input.text.casefold()
-        candidate = 'defrost' in text and 'minc' in text
+        candidate = bool(re.search(r'\bdefrost(?:ing)?\b', text) and re.search(r'\bminc(?:e|ed)\b', text)
+                         and not re.search(r'\b(?:turn|switch|lights?|set|timer|alarm)\b', text))
         if candidate and user_input.language.split('-')[0] == 'en':
             try:
                 result = await coordinator.client.request('POST', '/api/resolve',
                                                           json={'question': user_input.text})
             except (aiohttp.ClientError, TimeoutError, ValueError):
-                pass
-        if result and result.get('status') in {'matched', 'needs_weight', 'outside_supported_weight_range'} and result.get('answer'):
+                result = {'status': 'unavailable', 'answer': 'The document library could not be reached, so I cannot verify the defrost settings.'}
+        if result and result.get('status') in {'matched', 'needs_weight', 'outside_supported_weight_range', 'unavailable'} and result.get('answer'):
             response = intent.IntentResponse(language=user_input.language)
             response.async_set_speech(result['answer'])
             return conversation.ConversationResult(response=response,
