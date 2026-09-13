@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 nohup.out
 *.pdf
+# Local benchmark captures include household state and manual excerpts.
+review/
+dist/
+.pytest_cache/

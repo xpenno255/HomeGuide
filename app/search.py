@@ -113,16 +113,16 @@ def _vector_cache() -> dict | None:
         return _cache
 
 
-def _allowed_doc_ids(category: str | None) -> set[int] | None:
-    """None means no filter."""
-    if not category:
-        return None
+def _allowed_doc_ids(category: str | None, doc_ids: set[int] | None = None) -> set[int]:
+    """Intersect explicit document scope with active, ready documents."""
     conn = db.connect()
-    rows = conn.execute(
-        "SELECT id FROM documents WHERE status = 'ready' AND lower(category) = lower(?)",
-        (category,),
-    ).fetchall()
-    return {r["id"] for r in rows}
+    sql = "SELECT id FROM documents WHERE status = 'ready' AND active = 1"
+    params = []
+    if category:
+        sql += " AND lower(category) = lower(?)"
+        params.append(category)
+    available = {r['id'] for r in conn.execute(sql, params)}
+    return available if doc_ids is None else available & doc_ids
 
 
 def _document_frequency(conn, token: str) -> int:
@@ -255,7 +255,42 @@ def expand_synonyms(query: str) -> str:
     return f"{query} {' '.join(extra)}" if extra else query
 
 
-def hybrid_search(query: str, k: int = 4, category: str | None = None) -> list[dict]:
+def _fault_codes(query: str) -> list[str]:
+    """Recognise short letter/digit fault codes, not model numbers or temperatures.
+
+    Deliberately narrow: E4/F21 in fault/meaning questions or a bare code.
+    Other identifier formats retain the existing retrieval behaviour.
+    """
+    pattern = r"\b[A-Za-z]\d{1,3}\b"
+    if not re.search(r"\b(?:fault|error|code|mean)\b", query, re.I) and not re.fullmatch(pattern, query.strip()):
+        return []
+    return list(dict.fromkeys(code.upper() for code in re.findall(pattern, query)))
+
+
+def _fault_code_candidates(codes: list[str], allowed: set[int] | None) -> list[int]:
+    """Exact body matches must survive even when generic words outrank them.
+
+    A semantic match on 'fault' is not evidence for the requested code. Bypass
+    the document-frequency filter and constrain results before the top-k limit.
+    """
+    if allowed == set():
+        return []
+    sql = (
+        "SELECT c.id FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid "
+        "JOIN documents d ON d.id = c.doc_id "
+        "WHERE chunks_fts MATCH ? AND d.status = 'ready' "
+    )
+    params: list = [" AND ".join(f'text:"{code}"' for code in codes)]
+    if allowed is not None:
+        sql += f"AND c.doc_id IN ({','.join('?' * len(allowed))}) "
+        params.extend(allowed)
+    sql += "ORDER BY bm25(chunks_fts) LIMIT ?"
+    params.append(CANDIDATES)
+    return [r["id"] for r in db.connect().execute(sql, params).fetchall()]
+
+
+def hybrid_search(query: str, k: int = 4, category: str | None = None,
+                  doc_ids: set[int] | None = None) -> list[dict]:
     """Search, and only if that finds nothing, try again with synonyms.
 
     Expansion is a fallback rather than a rewrite because rewriting every query
@@ -264,17 +299,29 @@ def hybrid_search(query: str, k: int = 4, category: str | None = None) -> list[d
     Running it only when the library was about to say "not in the library"
     cannot regress a query that already works.
     """
-    results = _hybrid_search(query, k, category)
+    results = _hybrid_search(query, k, category, doc_ids)
     if results:
         return results
     expanded = expand_synonyms(query)
-    return _hybrid_search(expanded, k, category) if expanded != query else results
+    return _hybrid_search(expanded, k, category, doc_ids) if expanded != query else results
 
 
-def _hybrid_search(query: str, k: int, category: str | None) -> list[dict]:
-    allowed = _allowed_doc_ids(category)
-    fts_ids, fts_trusted = _fts_ranked(query, allowed)
+def _hybrid_search(query: str, k: int, category: str | None,
+                   doc_ids: set[int] | None = None) -> list[dict]:
+    allowed = _allowed_doc_ids(category, doc_ids)
+    if not allowed:
+        return []
+    codes = _fault_codes(query)
+    if codes:
+        fts_ids = _fault_code_candidates(codes, allowed)
+        if not fts_ids:
+            return []
+        fts_trusted = set(fts_ids)
+    else:
+        fts_ids, fts_trusted = _fts_ranked(query, allowed)
     vec_ids = _vector_ranked(query, allowed)
+    if codes:
+        vec_ids = [cid for cid in vec_ids if cid in fts_trusted]
 
     # Keyword-only mode (no embedding model) has no second opinion to consult,
     # so every keyword hit stands on its own there.
@@ -309,7 +356,14 @@ def _hybrid_search(query: str, k: int, category: str | None) -> list[dict]:
             continue
         text = r["text"]
         if len(text) > EXCERPT_MAX:
-            text = text[:EXCERPT_MAX].rsplit(" ", 1)[0] + "…"
+            if codes:
+                # Keep the evidence in the excerpt, even when the code is near
+                # the end of a chunk. Do not return a matching chunk's unrelated prefix.
+                match = re.search(r"\b" + re.escape(codes[0]) + r"\b", text, re.I)
+                if match and match.end() > EXCERPT_MAX - 1:
+                    text = "…" + text[max(0, match.start() - EXCERPT_MAX // 3):]
+            if len(text) > EXCERPT_MAX:
+                text = text[:EXCERPT_MAX].rsplit(" ", 1)[0] + "…"
         results.append(
             {
                 "document": r["title"],

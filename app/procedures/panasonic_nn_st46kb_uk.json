@@ -1,0 +1,18 @@
+{
+  "id": "panasonic_nn_st46kb_uk_chaos_mince",
+  "manufacturer": "Panasonic",
+  "model": "NN-ST46KB",
+  "region": "UK",
+  "manual_sha256": "f2b491fa5246af0423449d61d32f9e3ad70ecb52df600ec4a91ae7a75cc1850f",
+  "pages": [32, 33],
+  "reviewed_on": "2026-09-13",
+  "name": "Chaos Defrost — Meat Items",
+  "programme_number": 7,
+  "weight_range_g": {"minimum": 200, "maximum": 1200},
+  "steps": [
+    "Select programme 7 (Meat Items) with the Chaos Defrost button.",
+    "Set the food weight with the More/Less Weight pads, then press Start.",
+    "Use a large shallow dish and separate the mince when the oven beeps."
+  ],
+  "standing_time_minutes": {"minimum": 15, "maximum": 30}
+}

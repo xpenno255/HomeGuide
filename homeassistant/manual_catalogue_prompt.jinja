@@ -1,0 +1,10 @@
+Supported uploaded manual guides:
+{% if states('sensor.homeguide_library') not in ['unavailable', 'unknown'] -%}
+{% for appliance in state_attr('sensor.homeguide_library', 'appliances') or [] -%}
+{{ appliance.id }}: {{ appliance.name }} ({{ [appliance.manufacturer, appliance.model, appliance.region] | reject('equalto', '') | join(' ') }}); aliases: {{ appliance.aliases | join(', ') }}
+{% else -%}
+No confirmed ready guides are available.
+{% endfor -%}
+{% else -%}
+The manual catalogue is currently unavailable.
+{% endif %}

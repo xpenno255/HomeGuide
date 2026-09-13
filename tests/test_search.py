@@ -12,6 +12,51 @@ import pytest
 from app import search
 
 
+class TestExactFaultCodeEvidence:
+    @pytest.mark.parametrize("query", ["dishwasher fault code E4", "what does E4 mean", "e4"])
+    def test_generic_fault_hits_cannot_substitute_for_missing_code(self, add_doc, stub_embeddings, query):
+        stub_embeddings.default = 0.99
+        add_doc("Faults and errors\nFaults caused by misuse are excluded from the guarantee.")
+        add_doc("Troubleshooting\nE40 means something else; E04 is also a different code.")
+        assert search.hybrid_search(query) == []
+
+    def test_exact_code_survives_low_similarity_and_distractors(self, add_doc, stub_embeddings):
+        stub_embeddings.default = 0.99
+        for i in range(search.CANDIDATES + 1):
+            add_doc(f"Faults and errors\nGeneric fault code troubleshooting section {i}.")
+        stub_embeddings.set("E4:", 0.1)
+        add_doc("Troubleshooting\nE4: blocked flow sensor.", title="Dishwasher manual")
+        results = search.hybrid_search("dishwasher fault code E4")
+        assert len(results) == 1
+        assert "E4:" in results[0]["excerpt"]
+
+    def test_keyword_only_mode_still_requires_the_code(self, add_doc, no_embeddings):
+        add_doc("Dishwasher faults\nGeneric errors and fault codes.")
+        assert search.hybrid_search("dishwasher fault E4") == []
+
+    def test_category_and_ready_filters_still_apply(self, add_doc, stub_embeddings):
+        from app import db
+        doc_id = add_doc("Troubleshooting\nE4: blocked sensor.", category="manual")
+        assert search.hybrid_search("E4", category="warranty") == []
+        db.connect().execute("UPDATE documents SET status='processing' WHERE id=?", (doc_id,))
+        assert search.hybrid_search("E4") == []
+
+    def test_returned_excerpt_includes_the_code_at_end_of_chunk(self, data_dir, no_embeddings):
+        from app import db
+        conn = db.connect()
+        text = "General background information. " * 35 + "E4: blocked flow sensor."
+        conn.execute("INSERT INTO documents (id,title,filename,status) VALUES (1,'Manual','x.txt','ready')")
+        conn.execute("INSERT INTO chunks (id,doc_id,page,text) VALUES (1,1,1,?)", (text,))
+        conn.execute("INSERT INTO chunks_fts (rowid,text,title) VALUES (1,?,'Manual')", (text,))
+        result = search.hybrid_search("E4")[0]
+        assert "E4: blocked flow sensor" in result["excerpt"]
+        assert len(result["excerpt"]) <= search.EXCERPT_MAX + 1
+
+    @pytest.mark.parametrize("query", ["HR92 settings", "cook at 200C", "air fryer cooking time"])
+    def test_ordinary_queries_keep_existing_retrieval(self, query):
+        assert search._fault_codes(query) == []
+
+
 class TestSimilarityFloor:
     def test_hit_above_floor_returned(self, add_doc, stub_embeddings):
         stub_embeddings.set("Descaling", 0.80)

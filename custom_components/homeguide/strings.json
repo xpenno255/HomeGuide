@@ -1,0 +1,95 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to HomeGuide",
+        "data": {
+          "base_url": "HomeGuide URL",
+          "num_results": "Excerpts per query (1-10)"
+        },
+        "data_description": {
+          "base_url": "The address of your HomeGuide container, e.g. http://192.168.1.50:8480",
+          "num_results": "How many excerpts each search hands the agent. Each excerpt is up to 800 characters; keep it low for small models."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach that URL. Check the address and that the HomeGuide container is running.",
+      "not_homeguide": "The URL answered, but not like a HomeGuide instance."
+    },
+    "abort": {
+      "already_configured": "HomeGuide is already configured. Edit the existing entry instead."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HomeGuide library",
+        "menu_options": {
+          "connection": "Connection and search settings",
+          "appliance": "Add an appliance",
+          "upload": "Upload a guide",
+          "link": "Confirm an existing guide",
+          "refresh": "Refresh catalogue",
+          "assist": "Assist conversation agent"
+        }
+      },
+      "connection": {
+        "title": "Connection and search settings",
+        "data": {
+          "base_url": "HomeGuide URL",
+          "num_results": "Excerpts per query (1\u201310)"
+        }
+      },
+      "appliance": {
+        "title": "Add an appliance",
+        "description": "Enter the model and region from the appliance label. Add the names you use when speaking to Assist, separated by commas. Upload or confirm a guide after saving.",
+        "data": {
+          "name": "Appliance name",
+          "kind": "Appliance type",
+          "manufacturer": "Manufacturer",
+          "model": "Exact model",
+          "region": "Region",
+          "aliases": "Other names (comma separated)"
+        }
+      },
+      "upload": {
+        "title": "Upload a guide",
+        "description": "Check that the guide covers the selected appliance model and region. Assist will use it after indexing completes. The HomeGuide library sensor shows indexing status.",
+        "data": {
+          "appliance_id": "Appliance (model and region)",
+          "file": "Guide file (PDF, TXT or Markdown)",
+          "title": "Guide title (optional)",
+          "confirmed": "I checked that this guide matches this appliance, model and region"
+        }
+      },
+      "link": {
+        "title": "Confirm an existing guide",
+        "description": "Only confirm a guide after checking its model and region against the selected appliance.",
+        "data": {
+          "appliance_id": "Appliance (model and region)",
+          "document_id": "Existing guide",
+          "confirmed": "I checked that this guide matches this appliance, model and region"
+        }
+      },
+      "assist": {
+        "title": "Assist conversation agent",
+        "description": "Select your existing conversation agent for other requests. Then choose HomeGuide Assist in your voice assistant settings to speak reviewed procedures directly. Include the appliance and weight in each microwave question.",
+        "data": {
+          "fallback_agent": "Existing conversation agent"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach a compatible HomeGuide server.",
+      "save_failed": "Could not save the appliance. Check the fields and connection.",
+      "upload_failed": "The upload failed. Select the file again and retry.",
+      "confirmation_required": "Check the guide model and region before confirming.",
+      "invalid_agent": "Select an available conversation agent other than HomeGuide."
+    },
+    "abort": {
+      "cannot_connect": "Could not reach HomeGuide. Check the connection settings.",
+      "no_appliances": "Add an appliance first, then return here to upload or confirm its guide."
+    }
+  }
+}

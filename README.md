@@ -1,5 +1,8 @@
 # HomeGuide
 
+![HomeGuide](custom_components/homeguide/brand/icon.png)
+
+
 A local document library your Home Assistant voice agent can query. Upload appliance
 manuals, warranties and house documents (PDF/TXT/MD) through a web UI; the agent calls
 one REST tool and gets back the most relevant excerpts with document and page references.
@@ -78,8 +81,7 @@ agent that supports tool selection (Extended OpenAI Conversation, the official
 OpenAI/Ollama integrations, ...). One install covers all your agents, and the
 tool-usage guidance is injected automatically — no prompt editing.
 
-1. Copy [homeassistant/custom_components/homeguide](homeassistant/custom_components/homeguide)
-   into your HA `config/custom_components/` and restart Home Assistant.
+1. Install with [HACS](#hacs-and-github-releases), or copy [custom_components/homeguide](custom_components/homeguide) into your HA `config/custom_components/`, then restart Home Assistant.
 2. **Settings → Devices & Services → Add Integration → HomeGuide**, enter your
    HomeGuide URL (e.g. `http://192.168.1.50:8480`).
 3. In your conversation agent's options, tick **HomeGuide** in the LLM API /
@@ -98,14 +100,30 @@ For EOC setups without LLM API selection:
    improves how reliably a small model reaches for the tool:
 
    ```
-   You have access to the household document library via query_home_documents.
-   For any question about appliances, manuals, cooking times, fault codes,
-   warranties or house paperwork, call it before answering, and cite the
-   document and page. Never invent appliance instructions.
+   Use query_home_documents for appliance instructions, fault explanations,
+   maintenance, warranties and paperwork. Read current states, modes and
+   sensor readings from Home Assistant's provided state, not from manuals.
+   Search once per user question and answer from relevant excerpts, citing
+   document and page. If the search is empty, irrelevant or unavailable,
+   say the lookup could not answer and finish. Do not retry, rephrase or
+   search the web unless the user explicitly requests another search.
+   Never invent instructions or claim a failed search proves a manual
+   lacks the information.
    ```
 
 Then ask your voice assistant something like *"how long do I cook chicken breast in
 the air fryer?"* or *"what does E4 mean on the dishwasher?"*.
+
+Replace any existing "ANY question about appliances/settings MUST search" rule
+with this guidance; keeping both creates a conflict for current-mode questions.
+Keep these fixed instructions before the device list and put the changing time
+last to preserve prefix-cache reuse. The native tool description carries the same
+stopping guidance because some conversation integrations do not include API-level
+prompt text in the rendered model request.
+
+These are model instructions, not an enforced conversation limit. A caller that
+needs a hard limit must also bound its tool loop. HomeGuide's `/query` endpoint
+performs one retrieval and cannot stop another component from calling it again.
 
 ## API
 
@@ -123,6 +141,19 @@ the air fryer?"* or *"what does E4 mean on the dishwasher?"*.
 so it fits comfortably in a small model's context. Raise `k` in the `resource_template`
 if your context budget allows.
 
+Successful searches include `status: "matched"` and the existing `results` list.
+An empty search returns `status: "no_match"`, `results: []`, `retryable: false`,
+and a note explaining that this search did not find an answer. This is not proof
+that the information is absent from the entire library. The native HA integration
+also returns `status: "unavailable"` and `retryable: false` on connection failure.
+Existing consumers reading only `results` remain compatible.
+
+For recognised short fault codes such as E4 or F21, a returned chunk must contain
+the exact code in its body. Similarity to generic "fault" text is insufficient.
+This conservative check does not cover every manufacturer's code notation, and
+matching a code alone does not prove it belongs to the user's appliance: check
+the returned document title too. Search-time changes need no document reindex.
+
 ## Troubleshooting
 
 - **Agent answers from its own knowledge instead of calling the tool** — strengthen the
@@ -137,3 +168,79 @@ if your context budget allows.
   hit **Reindex** on them. It rebuilds from the stored original; nothing is re-uploaded.
 - **No auth by design** — this binds to your LAN with no authentication, like most
   homelab services. Don't expose port 8480 to the internet.
+
+### Appliance catalogue and uploads from Home Assistant (0.2.1)
+
+In **Settings → Devices & services → HomeGuide → Configure**, use:
+
+- **Connection and search settings** to set the HomeGuide URL and excerpt count.
+- **Add an appliance** to record its name, type, manufacturer, exact model, region and spoken aliases. Leave unknown model/region fields blank rather than guessing.
+- **Upload a guide** to select a PDF, TXT or Markdown file and confirm that it covers the selected appliance. HA forwards the file to HomeGuide; indexing runs there.
+- **Confirm an existing guide** to associate a document already in the library.
+- **Refresh catalogue** to refresh immediately. Automatic refresh runs every 60 seconds while the integration is loaded. The **HomeGuide library** sensor lists document indexing states and the currently supported appliances.
+
+Only active, ready documents with confirmed appliance associations appear in Assist's tool catalogue. Uploads still processing or failed, archived documents, and unconfirmed associations are excluded. Confirmation is a human assertion, not automatic model detection. Changing an appliance's type, manufacturer, model or region clears its guide confirmations. Names and aliases can change without invalidating guides.
+
+The Assist tool now requires `appliance_id` and `query`. The advertised IDs and metadata are sorted and contain no changing timestamps. HomeGuide filters both keyword and vector candidates to that appliance's confirmed documents **before** ranking limits. Unknown IDs and clear appliance-type conflicts return terminal responses; a failed lookup never broadens into another appliance's manuals. If the catalogue cannot refresh, the integration stops exposing the lookup tool until it recovers.
+
+The language model still chooses whether to call the tool. The integration does not receive the original utterance in HA 2026.9's `LLMContext`, so it cannot guarantee that an unsupported question never causes an attempted call. The tool schema, instructions and backend scope prevent unsupported IDs from retrieving unrelated guides. Keep the conversation system prompt consistent: use a guide only for a supported matching appliance, use HA state for current readings, and do not require a manual lookup for every appliance-related question.
+
+Catalogue API (existing unscoped `/query` and web uploads remain compatible):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/catalog` | Stable ready catalogue and content revision |
+| `GET /api/appliances` | All appliances, guide associations and supported types |
+| `POST /api/appliances` | Create `{name, kind, manufacturer, model, region, aliases}` |
+| `PUT /api/appliances/{id}` | Replace metadata; identity changes require reconfirmation |
+| `POST /api/documents/{id}/appliances` | Associate `{appliance_id, verified: true/false}` |
+| `PATCH /api/documents/{id}` | Archive/reactivate with `{active: false/true}` |
+| `POST /api/upload` | Existing multipart upload plus `appliance_id` and `verified` |
+| `GET /query?q=...&appliance_id=...` | Enforced appliance-scoped retrieval |
+
+Existing documents are preserved on migration but are not automatically declared verified. The HomeGuide web upload remains usable; confirm its appliance association from HA afterward. Legacy REST-function YAML clients must be updated separately; install the HA LLM API integration to get the automatically refreshed catalogue.
+
+Integration compatibility tests run in a separate environment with Home Assistant installed:
+
+```bash
+python3.14 -m venv /tmp/homeguide-ha-test
+/tmp/homeguide-ha-test/bin/pip install -r requirements-ha-tests.txt
+/tmp/homeguide-ha-test/bin/pytest homeassistant/tests
+```
+
+For Extended OpenAI Conversation versions that omit an LLM API's `api_prompt`, insert [the catalogue template](homeassistant/manual_catalogue_prompt.jinja) into the conversation system prompt before `Available Devices` and its CSV/time fields. This reads the integration's refreshed sensor, so supported names, aliases and model/region metadata update automatically. The catalogue must be treated separately from controllable HA entities: a manual can exist for an appliance with no HA entity. The tool description also contains the catalogue for agents that use native LLM APIs. Use the actual library sensor entity ID if HA gave it a different name.
+
+
+## HACS and GitHub releases
+
+Requires **Home Assistant 2026.9 or newer**. In HACS, open the menu → **Custom
+repositories**, enter `https://github.com/xpenno255/HomeGuide`, and choose
+**Integration**. Open HomeGuide, download the latest release, and restart Home
+Assistant. Then add HomeGuide under **Settings → Devices & services** and enter
+your backend URL (for this installation: `https://homeguide.xpennohome.uk`).
+Existing manually installed HomeGuide entries can be adopted by HACS: install to
+the same `custom_components/homeguide` location and restart; do not create a
+second config entry.
+
+HACS downloads the integration from the tagged `custom_components/homeguide`
+tree. GitHub releases also include `homeguide.zip` for manual installation;
+extract it into your HA config directory. This repository is usable as a HACS
+custom repository; it is not submitted to the default HACS catalogue.
+
+HACS installs the **HA integration only**. The HomeGuide backend remains a
+separate Docker service. Update it to the matching release, for example
+`ghcr.io/xpenno255/homeguide:0.3.0`, retaining its data volume. Release tags must
+match the integration manifest version. GitHub Actions validates HACS and HA
+metadata, runs integration tests, publishes a release ZIP and builds the backend
+image. See the [HACS requirements](https://www.hacs.xyz/docs/publish/integration/)
+and [release behaviour](https://www.hacs.xyz/docs/publish/start/).
+
+## Reviewed microwave answers (0.3.0)
+
+The exact reviewed NN-ST46KB UK manual can return source-backed Chaos Defrost
+controls and weight checks. The optional **HomeGuide Assist** agent speaks those
+answers directly and forwards other requests to your existing agent. Configure
+its delegate in HomeGuide options, then select HomeGuide Assist in your voice
+assistant settings. This avoids the measured empty-answer problem for reviewed
+procedures. Details, supported questions and source checks are in
+[Reviewed procedures](docs/reviewed-procedures.md).

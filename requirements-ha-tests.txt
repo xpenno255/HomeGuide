@@ -1,0 +1,8 @@
+homeassistant==2026.9.2
+# Core conversation dependencies are installed by HA at runtime, separately
+# from the base homeassistant wheel. Match that version's manifest for tests.
+gazetteer-matcher==1.1.0
+hassil==3.12.0
+home-assistant-intents==2026.8.28
+pytest>=8.0
+pytest-asyncio>=0.24

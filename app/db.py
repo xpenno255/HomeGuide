@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS documents (
     chunk_count INTEGER NOT NULL DEFAULT 0,
     status      TEXT NOT NULL DEFAULT 'processing',
     error       TEXT,
+    active      INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -47,6 +48,22 @@ CREATE INDEX IF NOT EXISTS idx_chunks_doc ON chunks(doc_id);
 -- usually only in the title ("Ninja Air Fryer User Manual"), never in the body,
 -- so without it "air fryer guarantee" cannot be steered to the right manual.
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, title, tokenize='porter unicode61');
+
+CREATE TABLE IF NOT EXISTS appliances (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL DEFAULT 'other',
+    manufacturer TEXT NOT NULL DEFAULT '',
+    model        TEXT NOT NULL DEFAULT '',
+    region       TEXT NOT NULL DEFAULT '',
+    aliases      TEXT NOT NULL DEFAULT '[]'
+);
+CREATE TABLE IF NOT EXISTS document_appliances (
+    doc_id       INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    appliance_id TEXT NOT NULL REFERENCES appliances(id) ON DELETE CASCADE,
+    verified     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (doc_id, appliance_id)
+);
 """
 
 
@@ -83,6 +100,9 @@ def connect() -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.executescript(SCHEMA)
+        if 'active' not in {r['name'] for r in conn.execute('PRAGMA table_info(documents)')}:
+            conn.execute('ALTER TABLE documents ADD COLUMN active INTEGER NOT NULL DEFAULT 1')
+            conn.commit()
         _migrate_fts_title(conn)
         _conn = conn
     return _conn

@@ -1,0 +1,31 @@
+name: Publish integration release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Validate release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json, os
+          version = json.load(open('custom_components/homeguide/manifest.json'))['version']
+          assert os.environ['RELEASE_TAG'] == 'v' + version
+          PY
+      - run: pip install -r requirements-ha-tests.txt
+      - run: pytest homeassistant/tests
+      - run: python scripts/package_integration.py
+      - name: Publish tagged integration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/homeguide.zip --verify-tag --title "HomeGuide $RELEASE_TAG" --notes-file RELEASE_NOTES.md

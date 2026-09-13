@@ -58,6 +58,7 @@ class TestQuery:
         _upload(client)
         body = client.get("/query", params={"q": "citric"}).json()
         assert body["results"]
+        assert body["status"] == "matched"
         assert set(body["results"][0]) == {"document", "category", "page", "excerpt"}
 
     def test_no_match_returns_note_not_error(self, client):
@@ -66,7 +67,15 @@ class TestQuery:
         _upload(client)
         body = client.get("/query", params={"q": "lawnmower blade replacement"}).json()
         assert body["results"] == []
+        assert body["status"] == "no_match"
+        assert body["retryable"] is False
         assert "No matching content" in body["note"]
+
+    def test_post_no_match_has_same_terminal_contract(self, client):
+        body = client.post("/query", json={"query": "dishwasher fault E4"}).json()
+        assert body["status"] == "no_match"
+        assert body["results"] == []
+        assert body["retryable"] is False
 
     def test_missing_query_is_400(self, client):
         assert client.get("/query", params={"q": ""}).status_code == 400

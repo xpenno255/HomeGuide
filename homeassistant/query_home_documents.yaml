@@ -9,14 +9,15 @@
 - spec:
     name: query_home_documents
     description: >-
-      Search the household document library. It contains appliance user manuals,
-      warranties and other house documents. Use this whenever the user asks about
-      how an appliance works, cooking times or temperatures, program or setting
-      names, error or fault codes, cleaning or descaling instructions, maintenance,
-      spare parts, warranty coverage, or anything else that would be written in a
-      manual or household document. Answer using only the returned excerpts and
-      say which document and page the answer came from. If no results are
-      returned, say the information is not in the document library.
+      Search household manuals and paperwork for appliance instructions, cooking
+      guidance, feature explanations, fault codes, cleaning, maintenance and
+      warranties. Not for live device states, current modes, sensor readings or
+      device control. Include the appliance and exact fault code or topic. Call once
+      per user question. Answer only from relevant returned excerpts, citing
+      document and page. If results are empty or irrelevant, or status is
+      no_match/unavailable, report that the lookup could not answer and finish
+      without another tool call. Do not rephrase/retry or search the web unless the
+      user explicitly asks.
     parameters:
       type: object
       properties:
